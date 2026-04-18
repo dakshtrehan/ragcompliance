@@ -169,16 +169,24 @@ Open `http://localhost:8000` for the audit dashboard. It ships with:
 | `POST /stripe/webhook` | Stripe event receiver (checkout, subscription, invoice) |
 | `GET /billing/subscription/{workspace_id}` | Current subscription + usage |
 
-## Billing
+## Self-host and optional paid support
 
-Two plans:
+RAGCompliance is MIT-licensed and free to self-host. No dashboard call-home, no locked features, no per-seat fees. Clone, `pip install -e .`, point it at your Supabase, done.
 
-| Tier | Price | Queries / month | Extras |
-|---|---|---|---|
-| Team | $49 / mo | 10,000 | CSV/JSON export, email support |
-| Enterprise | $199 / mo | Unlimited | SSO, custom retention, SOC 2 on request |
+If you'd rather not run it yourself, I offer a few kinds of paid help around the project:
 
-Start a checkout from your app:
+- **Integration review** — I read your RAG pipeline, tell you exactly what to wire in, and leave you with a passing end-to-end audit trail. Flat fee, one-week engagement.
+- **SOC 2 evidence prep** — I use the built-in evidence generator against your live data, sample-verify signatures, and hand you an auditor-ready pack mapped to CC6.1, CC7.2, CC8.1, A1.1, C1.1.
+- **Custom features on contract** — new retrievers, new alert rules, custom redaction, BYO object storage, private benchmarks. Scoped per engagement.
+- **Operated dashboard** — if you don't want to run the FastAPI dashboard, Supabase, and alerting yourself, I can host it for you under your own domain.
+
+Reach out at [daksh.trehan@hotmail.com](mailto:daksh.trehan@hotmail.com?subject=RAGCompliance) with what you're trying to ship.
+
+The Stripe billing + quota-metering code stays in the repo as a **reference implementation** — if you run RAGCompliance for a team and want to charge downstream users for quota, the plumbing is all there. It is not a paid tier of this project.
+
+### Billing reference implementation
+
+For operators running RAGCompliance as an internal product, here's how the billing plumbing fits together. Start a checkout from your app:
 
 ```python
 import requests
@@ -322,16 +330,15 @@ pytest -v
 
 ## Roadmap
 
-- [x] LangChain callback handler (LCEL-safe, outermost-chain latching)
-- [x] LlamaIndex callback handler (SYNTHESIZE-based answer capture)
-- [x] Dashboard export to CSV / JSON
-- [x] Stripe billing + quota metering with period-rollover reset
-- [x] Fail-closed quota enforcement (`RAGCOMPLIANCE_ENFORCE_QUOTA=true`)
-- [x] Async audit writes (fire-and-forget, bounded-queue worker, atexit drain)
-- [x] Slack alerts for anomalous queries (zero chunks, low similarity, slow, errored)
-- [x] SOC 2 report template generator
-- [x] SSO (OIDC) on the dashboard
-- [x] Stripe live-mode readiness probe (`/health/billing`)
+See [CHANGELOG.md](./CHANGELOG.md) for what's already shipped. What's coming next:
+
+- [ ] **BYO object storage** — write the raw query / chunks / answer payload to S3 / GCS / Azure Blob under a customer-owned KMS key, so Supabase only holds metadata and the signature. Keeps sensitive text out of the shared database entirely.
+- [ ] **PII redaction pre-audit** — opt-in hook that runs a local regex + NER pass over the query and retrieved chunks before the record is signed, so audit trails don't become a secondary PII leak.
+- [ ] **Anthropic and Bedrock parity** — the LangChain integration already works with any chat model, but we want first-class coverage (and fixture tests) for `ChatAnthropic` and `ChatBedrock` so compliance-heavy teams don't have to verify the capture path themselves.
+- [ ] **Reranker audit** — capture the reranker step for pipelines that use one (Cohere / Jina / cross-encoders), so the audit record tells the story of *why* a chunk ended up in the final context, not just *which* chunk.
+- [ ] **Signature coverage v2** — opt-in stricter signature that also covers `similarity_score` and reranker outputs, for workspaces that need retrieval-level integrity, not just answer-level integrity.
+
+Have a use case that isn't on this list? Open a GitHub issue or discussion — the roadmap is driven by what users actually need, not what's on my whiteboard.
 
 ## License
 
