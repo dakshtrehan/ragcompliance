@@ -28,7 +28,7 @@ from typing import Any
 # fastapi + starlette are installed whenever the dashboard is, so importing
 # them at module level here is safe. authlib is the only thing we keep lazy
 # because it lives in the optional `sso` extra.
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import HTTPException, Request
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 from starlette.responses import JSONResponse, RedirectResponse

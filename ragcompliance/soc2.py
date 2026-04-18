@@ -34,7 +34,6 @@ import argparse
 import hashlib
 import json
 import logging
-import os
 import random
 import sys
 from dataclasses import dataclass
@@ -250,7 +249,7 @@ def _format_md(
         f"({period_days} day{'s' if period_days != 1 else ''})"
     )
     lines.append(f"**Generated:** {generated_at}")
-    lines.append(f"**Tool:** ragcompliance")
+    lines.append("**Tool:** ragcompliance")
     lines.append("")
     lines.append(
         "> This document is an evidence package intended to accompany a SOC 2 "

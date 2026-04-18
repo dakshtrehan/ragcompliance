@@ -220,11 +220,9 @@ class TestInitSSOEnabled:
         # Find the oauth client authlib registered and stub its token method.
         # The registered client is accessible via the oauth proxy closed over
         # in the route; stubbing it is cleaner via authlib's integration API.
-        from authlib.integrations.starlette_client import OAuth
 
         # Monkey-patch the authlib OAuth client's authorize_access_token to
         # return a canned userinfo payload without hitting a real IdP.
-        import ragcompliance.auth as auth_mod
 
         async def fake_authorize(self, request, **kwargs):
             return {"userinfo": {"email": "mallory@evil.com", "name": "M", "sub": "u"}}
