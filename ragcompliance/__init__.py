@@ -3,7 +3,7 @@ RAGCompliance — Audit trail middleware for RAG in regulated industries.
 """
 
 from .alerts import SlackAlerter
-from .billing import PLANS, BillingManager, WorkspaceSubscription
+from .billing import BillingManager, BillingReadiness, PLANS, WorkspaceSubscription
 from .config import RAGComplianceConfig
 from .handler import RAGComplianceHandler
 from .models import AuditRecord, RetrievedChunk
@@ -14,6 +14,7 @@ __all__ = [
     "AuditRecord",
     "AuditStorage",
     "BillingManager",
+    "BillingReadiness",
     "PLANS",
     "RAGComplianceConfig",
     "RAGComplianceHandler",

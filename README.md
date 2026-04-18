@@ -177,6 +177,32 @@ Quota enforcement is soft by default (the chain logs a warning if the workspace 
 
 Query counters reset automatically at each billing period rollover. The reset is driven by Stripe's `customer.subscription.updated` webhook, with a self-healing fallback in `check_query_quota` that forces a reset if the stored period end falls into the past (so a dropped webhook can never permanently lock a workspace out).
 
+### Going live (Stripe)
+
+Flipping the dashboard from test mode to live mode is a four-step runbook. RAGCompliance ships with a readiness pre-flight so you don't find out you shipped a `prod_…` where a `price_…` belongs on a Saturday night.
+
+1. In the Stripe Dashboard, switch to **Live** mode. Re-create the Team and Enterprise products + recurring prices (live mode is a separate universe, test-mode IDs do not carry over). Copy the two `price_live_…` IDs.
+2. Update your deployment env vars:
+
+   ```bash
+   STRIPE_SECRET_KEY=sk_live_...
+   STRIPE_WEBHOOK_SECRET=whsec_...       # from the live webhook endpoint
+   STRIPE_PRICE_ID_TEAM=price_live_...
+   STRIPE_PRICE_ID_ENTERPRISE=price_live_...
+   APP_BASE_URL=https://dash.example.com  # must not be localhost in live mode
+   ```
+
+3. In the Stripe Dashboard under **Developers → Webhooks**, create a new live-mode endpoint at `https://<your-dash>/stripe/webhook` subscribed to `checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted`, and `invoice.paid`. Paste the signing secret into `STRIPE_WEBHOOK_SECRET`.
+4. Hit the readiness probe to verify everything is wired:
+
+   ```bash
+   curl https://<your-dash>/health/billing
+   ```
+
+   A fully-configured live deployment returns `{"ok": true, "mode": "live", ...}` with a 200. Any misconfiguration (missing webhook secret, `prod_…` pasted where `price_…` belongs, localhost base URL in live mode, Supabase not reachable) comes back as 503 with an `issues` list. The response sanitises every secret — only prefixes like `sk_live…` ever leak — so it's safe to hit from a status page or uptime monitor.
+
+Programmatic callers get the same structure via `BillingManager.readiness()` returning a `BillingReadiness` dataclass.
+
 ## Latency
 
 Audit writes are fire-and-forget by default. `save()` enqueues the record onto a bounded in-memory queue and a single daemon worker drains it into Supabase, so the chain's hot path never blocks on audit I/O. In benchmarks, per-chain overhead drops from roughly 1.2s (sync Supabase RTT) to well under 1ms (enqueue only), a three to four order of magnitude improvement.
@@ -287,6 +313,7 @@ pytest -v
 - [x] Slack alerts for anomalous queries (zero chunks, low similarity, slow, errored)
 - [x] SOC 2 report template generator
 - [x] SSO (OIDC) on the dashboard
+- [x] Stripe live-mode readiness probe (`/health/billing`)
 
 ## License
 

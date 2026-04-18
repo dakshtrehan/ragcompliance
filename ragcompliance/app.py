@@ -54,6 +54,16 @@ def health() -> dict[str, str]:
     return {"status": "ok", "timestamp": datetime.now(timezone.utc).isoformat()}
 
 
+@app.get("/health/billing")
+def billing_health() -> JSONResponse:
+    """Stripe billing pre-flight. Returns 200 if live/test mode is correctly
+    configured, 503 with a list of issues otherwise. Safe to expose publicly —
+    the response is sanitized (no secrets, only key prefixes)."""
+    rd = billing.readiness()
+    status = 200 if rd.ok else 503
+    return JSONResponse(rd.to_dict(), status_code=status)
+
+
 @app.get("/api/logs")
 def get_logs(
     workspace_id: str | None = Query(None, description="Filter by workspace"),

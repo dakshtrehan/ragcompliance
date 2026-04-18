@@ -144,6 +144,44 @@ class WorkspaceSubscription:
 
 
 # ---------------------------------------------------------------------------
+# Live-mode readiness
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class BillingReadiness:
+    """Pre-flight status of the Stripe + Supabase billing path."""
+
+    mode: str                 # "live" | "test" | "unconfigured"
+    ok: bool                  # True when `mode` is live or test and nothing's broken
+    issues: list[str] = field(default_factory=list)
+    summary: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "mode": self.mode,
+            "ok": self.ok,
+            "issues": self.issues,
+            "summary": self.summary,
+        }
+
+
+def _detect_mode(secret_key: str) -> str:
+    if not secret_key:
+        return "unconfigured"
+    if secret_key.startswith("sk_live_"):
+        return "live"
+    if secret_key.startswith("sk_test_"):
+        return "test"
+    # Restricted keys (rk_live_ / rk_test_) and custom keys are still valid.
+    if secret_key.startswith(("rk_live_", "whsec_live_")):
+        return "live"
+    if secret_key.startswith(("rk_test_", "whsec_test_")):
+        return "test"
+    return "unconfigured"
+
+
+# ---------------------------------------------------------------------------
 # BillingManager
 # ---------------------------------------------------------------------------
 
@@ -204,6 +242,71 @@ class BillingManager:
             supabase_url=os.getenv("RAGCOMPLIANCE_SUPABASE_URL", ""),
             supabase_key=os.getenv("RAGCOMPLIANCE_SUPABASE_KEY", ""),
             app_base_url=os.getenv("APP_BASE_URL", "http://localhost:8000"),
+        )
+
+    # ------------------------------------------------------------------ #
+    # Readiness                                                            #
+    # ------------------------------------------------------------------ #
+
+    def readiness(self) -> BillingReadiness:
+        """Pre-flight the billing path. Returns mode + list of issues.
+
+        Intended to be called at startup and exposed through a /health/billing
+        endpoint so operators catch live-mode misconfig before the first
+        customer hits checkout. Never throws — always returns a summary.
+        """
+        mode = _detect_mode(self.stripe_secret_key)
+        issues: list[str] = []
+
+        if mode == "unconfigured":
+            issues.append("STRIPE_SECRET_KEY is not set")
+        if not self.stripe_webhook_secret:
+            issues.append("STRIPE_WEBHOOK_SECRET is not set")
+        if not self.supabase_url or not self.supabase_key:
+            issues.append(
+                "Supabase is not configured (RAGCOMPLIANCE_SUPABASE_URL / _KEY) — "
+                "subscription state cannot be persisted"
+            )
+        # Price IDs use `price_...` (never `prod_...`) — guard against the
+        # common mistake of pasting a product ID into STRIPE_PRICE_ID_*.
+        refresh_plans()
+        for tier, plan in PLANS.items():
+            pid = plan.get("stripe_price_id", "")
+            if not pid:
+                issues.append(f"STRIPE_PRICE_ID_{tier.upper()} is not set")
+                continue
+            if not pid.startswith("price_"):
+                issues.append(
+                    f"STRIPE_PRICE_ID_{tier.upper()}={pid[:10]}… looks wrong "
+                    "(expected prefix 'price_'; did you paste a product ID?)"
+                )
+        if not self.app_base_url or self.app_base_url in ("http://localhost:8000",):
+            if mode == "live":
+                issues.append(
+                    "APP_BASE_URL is localhost but you're in live mode — Stripe "
+                    "success/cancel redirects and webhook callbacks will not work"
+                )
+
+        # Sanitized summary — never include the actual secrets.
+        summary: dict[str, Any] = {
+            "secret_key_prefix": self.stripe_secret_key[:7] + "…"
+            if self.stripe_secret_key
+            else "",
+            "webhook_secret_set": bool(self.stripe_webhook_secret),
+            "supabase_configured": bool(self._supabase),
+            "app_base_url": self.app_base_url,
+            "price_ids": {
+                tier: (PLANS[tier].get("stripe_price_id") or "")[:10] + "…"
+                if PLANS[tier].get("stripe_price_id")
+                else ""
+                for tier in PLANS
+            },
+        }
+        return BillingReadiness(
+            mode=mode,
+            ok=(mode in ("live", "test")) and not issues,
+            issues=issues,
+            summary=summary,
         )
 
     # ------------------------------------------------------------------ #
