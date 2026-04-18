@@ -247,7 +247,16 @@ class BillingManager:
             raise
 
         event_type = event["type"]
-        data = event["data"]["object"]
+        raw_object = event["data"]["object"]
+        # Stripe SDK 12.x StripeObject.__getattr__ intercepts .get() calls and
+        # raises AttributeError('get'). Convert to a plain nested dict up-front
+        # so handlers can use normal dict semantics.
+        if hasattr(raw_object, "to_dict_recursive"):
+            data = raw_object.to_dict_recursive()
+        elif hasattr(raw_object, "to_dict"):
+            data = raw_object.to_dict()
+        else:
+            data = dict(raw_object)
         logger.info(f"Stripe webhook: {event_type}")
 
         if event_type == "checkout.session.completed":
