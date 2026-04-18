@@ -116,6 +116,38 @@ class AuditStorage:
             time.sleep(0.02)
         return self._queue.empty()
 
+    def get_by_id(
+        self,
+        record_id: str,
+        workspace_id: str | None = None,
+    ) -> dict[str, Any] | None:
+        """
+        Fetch a single audit record by its primary id.
+
+        The dashboard detail endpoint previously paged through up to 500
+        recent records in memory to find one — fine at small volume, a
+        cliff at even moderate traffic. This method pushes the lookup
+        down to Supabase as a single indexed query.
+
+        Returns the record as a dict, or None if no record exists with
+        that id (scoped to ``workspace_id`` when provided so one
+        workspace cannot read another's records via a guessed uuid).
+        """
+        if self._client is None:
+            logger.warning("RAGCompliance: No Supabase client — cannot get_by_id.")
+            return None
+
+        try:
+            q = self._client.table(self.config.table_name).select("*").eq("id", record_id)
+            if workspace_id:
+                q = q.eq("workspace_id", workspace_id)
+            result = q.limit(1).execute()
+            rows = result.data or []
+            return rows[0] if rows else None
+        except Exception as e:
+            logger.error(f"RAGCompliance: get_by_id failed: {e}")
+            return None
+
     def query(
         self,
         workspace_id: str | None = None,

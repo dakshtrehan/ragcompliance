@@ -156,11 +156,10 @@ def export_csv(
 
 @app.get("/api/logs/detail/{record_id}")
 def get_log(record_id: str) -> dict[str, Any]:
-    records = storage.query(workspace_id=config.workspace_id, limit=500)
-    match = next((r for r in records if r.get("id") == record_id), None)
-    if not match:
+    record = storage.get_by_id(record_id, workspace_id=config.workspace_id)
+    if record is None:
         raise HTTPException(status_code=404, detail="Audit record not found")
-    return match
+    return record
 
 
 @app.get("/api/logs/export.json")
