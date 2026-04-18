@@ -1,18 +1,27 @@
 """
 RAGCompliance FastAPI Dashboard
 --------------------------------
-Run with: uvicorn ragcompliance.dashboard.app:app --reload
+Run with:  uvicorn ragcompliance.app:app --reload
 """
 
+from __future__ import annotations
+
+import csv
+import io
+import json
+import logging
 from datetime import datetime, timezone
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, Header, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 
+from ragcompliance.billing import PLANS, BillingManager
 from ragcompliance.config import RAGComplianceConfig
 from ragcompliance.storage import AuditStorage
+
+logger = logging.getLogger(__name__)
 
 app = FastAPI(
     title="RAGCompliance Dashboard",
@@ -23,16 +32,17 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_methods=["GET"],
+    allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
 
 config = RAGComplianceConfig.from_env()
 storage = AuditStorage(config)
+billing = BillingManager.from_env()
 
 
 # ------------------------------------------------------------------ #
-# API routes                                                          #
+# Health + audit read API                                            #
 # ------------------------------------------------------------------ #
 
 @app.get("/health")
@@ -54,15 +64,6 @@ def get_logs(
     return {"count": len(records), "logs": records}
 
 
-@app.get("/api/logs/{record_id}")
-def get_log(record_id: str) -> dict[str, Any]:
-    records = storage.query(workspace_id=config.workspace_id, limit=500)
-    match = next((r for r in records if r.get("id") == record_id), None)
-    if not match:
-        raise HTTPException(status_code=404, detail="Audit record not found")
-    return match
-
-
 @app.get("/api/summary")
 def get_summary() -> dict[str, Any]:
     records = storage.query(workspace_id=config.workspace_id, limit=500)
@@ -82,13 +83,151 @@ def get_summary() -> dict[str, Any]:
 
 
 # ------------------------------------------------------------------ #
-# Minimal HTML dashboard (no frontend framework needed)              #
+# Export                                                              #
 # ------------------------------------------------------------------ #
 
-@app.get("/", response_class=HTMLResponse)
-def dashboard() -> str:
-    return """
-<!DOCTYPE html>
+def _filtered_records(
+    workspace_id: str | None,
+    session_id: str | None,
+    limit: int,
+) -> list[dict[str, Any]]:
+    return storage.query(
+        workspace_id=workspace_id or config.workspace_id,
+        session_id=session_id,
+        limit=limit,
+    )
+
+
+@app.get("/api/logs/export.csv")
+def export_csv(
+    workspace_id: str | None = Query(None),
+    session_id: str | None = Query(None),
+    limit: int = Query(500, ge=1, le=10_000),
+) -> StreamingResponse:
+    records = _filtered_records(workspace_id, session_id, limit)
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow([
+        "id", "timestamp", "session_id", "workspace_id", "query",
+        "num_chunks", "chunk_sources", "llm_answer", "model_name",
+        "chain_signature", "latency_ms",
+    ])
+    for r in records:
+        chunks = r.get("retrieved_chunks") or []
+        sources = ";".join(
+            str(c.get("source_url", "")) if isinstance(c, dict) else ""
+            for c in chunks
+        )
+        writer.writerow([
+            r.get("id", ""),
+            r.get("timestamp", ""),
+            r.get("session_id", ""),
+            r.get("workspace_id", ""),
+            r.get("query", ""),
+            len(chunks),
+            sources,
+            r.get("llm_answer", ""),
+            r.get("model_name", ""),
+            r.get("chain_signature", ""),
+            r.get("latency_ms", ""),
+        ])
+    buf.seek(0)
+    filename = f"ragcompliance-logs-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}.csv"
+    return StreamingResponse(
+        iter([buf.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.get("/api/logs/detail/{record_id}")
+def get_log(record_id: str) -> dict[str, Any]:
+    records = storage.query(workspace_id=config.workspace_id, limit=500)
+    match = next((r for r in records if r.get("id") == record_id), None)
+    if not match:
+        raise HTTPException(status_code=404, detail="Audit record not found")
+    return match
+
+
+@app.get("/api/logs/export.json")
+def export_json(
+    workspace_id: str | None = Query(None),
+    session_id: str | None = Query(None),
+    limit: int = Query(500, ge=1, le=10_000),
+) -> StreamingResponse:
+    records = _filtered_records(workspace_id, session_id, limit)
+    payload = json.dumps({"count": len(records), "logs": records}, default=str, indent=2)
+    filename = f"ragcompliance-logs-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}.json"
+    return StreamingResponse(
+        iter([payload]),
+        media_type="application/json",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+# ------------------------------------------------------------------ #
+# Billing                                                             #
+# ------------------------------------------------------------------ #
+
+@app.get("/api/plans")
+def get_plans() -> dict[str, Any]:
+    return {"plans": PLANS}
+
+
+@app.post("/billing/checkout")
+async def billing_checkout(payload: dict[str, Any]) -> dict[str, str]:
+    workspace_id = payload.get("workspace_id") or config.workspace_id
+    tier = payload.get("tier", "team")
+    success_url = payload.get("success_url")
+    cancel_url = payload.get("cancel_url")
+    try:
+        url = billing.create_checkout_session(
+            workspace_id=workspace_id,
+            tier=tier,
+            success_url=success_url,
+            cancel_url=cancel_url,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except Exception as e:
+        # e.g. stripe.error.AuthenticationError on a bad key, network errors
+        logger.error(f"Checkout session error: {e}")
+        raise HTTPException(status_code=502, detail=f"Stripe error: {e}")
+    return {"checkout_url": url}
+
+
+@app.post("/stripe/webhook")
+async def stripe_webhook(
+    request: Request,
+    stripe_signature: str | None = Header(default=None, alias="Stripe-Signature"),
+) -> JSONResponse:
+    if not stripe_signature:
+        raise HTTPException(status_code=400, detail="Missing Stripe-Signature header")
+    payload = await request.body()
+    try:
+        result = billing.handle_webhook(payload, stripe_signature)
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Webhook error: {e}")
+    return JSONResponse(result)
+
+
+@app.get("/billing/subscription/{workspace_id}")
+def get_subscription(workspace_id: str) -> dict[str, Any]:
+    row = billing.get_workspace_subscription(workspace_id)
+    if not row:
+        return {"workspace_id": workspace_id, "tier": "free", "status": "inactive"}
+    return row
+
+
+# ------------------------------------------------------------------ #
+# HTML dashboard                                                      #
+# ------------------------------------------------------------------ #
+
+_HTML = """<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -99,6 +238,9 @@ def dashboard() -> str:
     header { padding: 24px 40px; border-bottom: 1px solid #1e2535; display: flex; align-items: center; gap: 12px; }
     header h1 { font-size: 20px; font-weight: 600; }
     header span { font-size: 12px; background: #1e3a5f; color: #60a5fa; padding: 2px 8px; border-radius: 12px; }
+    header .actions { margin-left: auto; display: flex; gap: 8px; }
+    .btn { background: #1e3a5f; color: #60a5fa; padding: 8px 14px; border-radius: 6px; text-decoration: none; font-size: 13px; border: 1px solid #1e4b7a; cursor: pointer; }
+    .btn:hover { background: #264b73; }
     .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; padding: 32px 40px 0; }
     .stat { background: #1a1f2e; border: 1px solid #1e2535; border-radius: 8px; padding: 20px; }
     .stat label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: #64748b; }
@@ -120,6 +262,10 @@ def dashboard() -> str:
   <header>
     <h1>RAGCompliance</h1>
     <span>Audit Dashboard</span>
+    <div class="actions">
+      <a class="btn" href="/api/logs/export.csv">Export CSV</a>
+      <a class="btn" href="/api/logs/export.json">Export JSON</a>
+    </div>
   </header>
 
   <div class="stats">
@@ -177,3 +323,8 @@ def dashboard() -> str:
 </body>
 </html>
 """
+
+
+@app.get("/", response_class=HTMLResponse)
+def dashboard() -> str:
+    return _HTML

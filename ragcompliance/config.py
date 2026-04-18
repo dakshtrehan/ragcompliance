@@ -11,6 +11,9 @@ class RAGComplianceConfig:
     enabled: bool = True
     # If True, logs to stdout when Supabase is not configured (dev mode)
     dev_mode: bool = False
+    # If True, hard-blocks the chain when the workspace is over its plan quota.
+    # Default is soft-warn only so quota misconfiguration never bricks a prod chain.
+    enforce_quota: bool = False
 
     @classmethod
     def from_env(cls) -> "RAGComplianceConfig":
@@ -21,4 +24,5 @@ class RAGComplianceConfig:
             table_name=os.getenv("RAGCOMPLIANCE_TABLE_NAME", "rag_audit_logs"),
             enabled=os.getenv("RAGCOMPLIANCE_ENABLED", "true").lower() == "true",
             dev_mode=os.getenv("RAGCOMPLIANCE_DEV_MODE", "false").lower() == "true",
+            enforce_quota=os.getenv("RAGCOMPLIANCE_ENFORCE_QUOTA", "false").lower() == "true",
         )

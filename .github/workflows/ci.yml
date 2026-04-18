@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: "pip"
+
+      - name: Install package with all extras
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev,supabase,dashboard,llamaindex]"
+
+      - name: Lint with ruff
+        run: ruff check ragcompliance tests
+
+      - name: Run tests
+        env:
+          RAGCOMPLIANCE_DEV_MODE: "true"
+          STRIPE_SECRET_KEY: "sk_test_dummy_for_ci"
+          STRIPE_WEBHOOK_SECRET: "whsec_dummy_for_ci"
+          STRIPE_PRICE_ID_TEAM: "price_team_dummy"
+          STRIPE_PRICE_ID_ENTERPRISE: "price_ent_dummy"
+          APP_BASE_URL: "http://localhost:8000"
+        run: pytest -v --tb=short

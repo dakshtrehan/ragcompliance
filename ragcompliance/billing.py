@@ -1,0 +1,420 @@
+"""
+RAGCompliance billing — Stripe Checkout + subscription lifecycle + usage metering.
+
+All Stripe interactions go through the `BillingManager`. Subscription state and
+per-workspace usage counters are persisted in Supabase in the
+`workspace_subscriptions` table (see supabase_migration_billing.sql).
+
+Environment variables consumed (see .env.example):
+    STRIPE_SECRET_KEY
+    STRIPE_WEBHOOK_SECRET
+    STRIPE_PRICE_ID_TEAM
+    STRIPE_PRICE_ID_ENTERPRISE
+    APP_BASE_URL
+    RAGCOMPLIANCE_SUPABASE_URL
+    RAGCOMPLIANCE_SUPABASE_KEY
+"""
+
+from __future__ import annotations
+
+import logging
+import os
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from typing import Any
+
+logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Plans
+# ---------------------------------------------------------------------------
+
+def _plans() -> dict[str, dict[str, Any]]:
+    """Built lazily so env var changes during tests are picked up."""
+    return {
+        "team": {
+            "name": "Team",
+            "price_usd": 49,
+            "query_limit": 10_000,
+            "stripe_price_id": os.getenv("STRIPE_PRICE_ID_TEAM", ""),
+            "description": "10K audited RAG queries per month, email support, CSV/JSON export.",
+            "features": [
+                "10,000 audited queries / month",
+                "SHA-256 chain signatures",
+                "Per-workspace row-level security",
+                "CSV and JSON export",
+                "Email support",
+            ],
+        },
+        "enterprise": {
+            "name": "Enterprise",
+            "price_usd": 199,
+            "query_limit": None,  # unlimited
+            "stripe_price_id": os.getenv("STRIPE_PRICE_ID_ENTERPRISE", ""),
+            "description": "Unlimited queries, SSO, priority support, export, custom retention.",
+            "features": [
+                "Unlimited audited queries",
+                "SSO (SAML / OIDC)",
+                "Priority support + Slack channel",
+                "CSV and JSON export",
+                "Custom retention policy",
+                "SOC 2 report (on request)",
+            ],
+        },
+    }
+
+
+PLANS: dict[str, dict[str, Any]] = _plans()
+
+
+def refresh_plans() -> None:
+    """Re-read price IDs from env (useful in tests)."""
+    global PLANS
+    PLANS = _plans()
+
+
+# ---------------------------------------------------------------------------
+# Subscription record
+# ---------------------------------------------------------------------------
+
+@dataclass
+class WorkspaceSubscription:
+    workspace_id: str
+    stripe_customer_id: str | None = None
+    stripe_subscription_id: str | None = None
+    tier: str = "free"
+    status: str = "inactive"
+    current_period_end: datetime | None = None
+    query_count_current_period: int = 0
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+
+    @classmethod
+    def from_row(cls, row: dict[str, Any]) -> "WorkspaceSubscription":
+        def _parse(v: Any) -> datetime | None:
+            if not v:
+                return None
+            if isinstance(v, datetime):
+                return v
+            return datetime.fromisoformat(str(v).replace("Z", "+00:00"))
+
+        return cls(
+            workspace_id=row["workspace_id"],
+            stripe_customer_id=row.get("stripe_customer_id"),
+            stripe_subscription_id=row.get("stripe_subscription_id"),
+            tier=row.get("tier", "free"),
+            status=row.get("status", "inactive"),
+            current_period_end=_parse(row.get("current_period_end")),
+            query_count_current_period=int(row.get("query_count_current_period") or 0),
+            created_at=_parse(row.get("created_at")) or datetime.now(timezone.utc),
+            updated_at=_parse(row.get("updated_at")) or datetime.now(timezone.utc),
+        )
+
+    def to_row(self) -> dict[str, Any]:
+        return {
+            "workspace_id": self.workspace_id,
+            "stripe_customer_id": self.stripe_customer_id,
+            "stripe_subscription_id": self.stripe_subscription_id,
+            "tier": self.tier,
+            "status": self.status,
+            "current_period_end": self.current_period_end.isoformat()
+            if self.current_period_end
+            else None,
+            "query_count_current_period": self.query_count_current_period,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+
+# ---------------------------------------------------------------------------
+# BillingManager
+# ---------------------------------------------------------------------------
+
+class BillingManager:
+    """
+    Stripe wrapper + Supabase-backed subscription state.
+
+    Safe to instantiate without real credentials for tests — every method will
+    return a sensible no-op and log a warning if Stripe or Supabase isn't
+    configured.
+    """
+
+    TABLE_NAME = "workspace_subscriptions"
+
+    def __init__(
+        self,
+        stripe_secret_key: str = "",
+        stripe_webhook_secret: str = "",
+        supabase_url: str = "",
+        supabase_key: str = "",
+        app_base_url: str = "http://localhost:8000",
+    ):
+        self.stripe_secret_key = stripe_secret_key
+        self.stripe_webhook_secret = stripe_webhook_secret
+        self.supabase_url = supabase_url
+        self.supabase_key = supabase_key
+        self.app_base_url = app_base_url.rstrip("/")
+
+        self._stripe = None
+        self._supabase = None
+
+        if stripe_secret_key:
+            try:
+                import stripe  # type: ignore
+                stripe.api_key = stripe_secret_key
+                self._stripe = stripe
+            except ImportError:
+                logger.warning("stripe package not installed — run `pip install stripe`")
+
+        if supabase_url and supabase_key:
+            try:
+                from supabase import create_client  # type: ignore
+                self._supabase = create_client(supabase_url, supabase_key)
+            except ImportError:
+                logger.warning(
+                    "supabase package not installed — run `pip install ragcompliance[supabase]`"
+                )
+
+    # ------------------------------------------------------------------ #
+    # Constructors                                                         #
+    # ------------------------------------------------------------------ #
+
+    @classmethod
+    def from_env(cls) -> "BillingManager":
+        return cls(
+            stripe_secret_key=os.getenv("STRIPE_SECRET_KEY", ""),
+            stripe_webhook_secret=os.getenv("STRIPE_WEBHOOK_SECRET", ""),
+            supabase_url=os.getenv("RAGCOMPLIANCE_SUPABASE_URL", ""),
+            supabase_key=os.getenv("RAGCOMPLIANCE_SUPABASE_KEY", ""),
+            app_base_url=os.getenv("APP_BASE_URL", "http://localhost:8000"),
+        )
+
+    # ------------------------------------------------------------------ #
+    # Checkout                                                             #
+    # ------------------------------------------------------------------ #
+
+    def create_checkout_session(
+        self,
+        workspace_id: str,
+        tier: str,
+        success_url: str | None = None,
+        cancel_url: str | None = None,
+    ) -> str:
+        """Returns a Stripe Checkout URL for the given tier."""
+        if self._stripe is None:
+            raise RuntimeError("Stripe not configured — set STRIPE_SECRET_KEY")
+
+        if tier not in PLANS:
+            raise ValueError(f"Unknown tier {tier!r}. Choices: {list(PLANS)}")
+
+        price_id = PLANS[tier]["stripe_price_id"]
+        if not price_id:
+            raise RuntimeError(
+                f"STRIPE_PRICE_ID_{tier.upper()} is not set in env"
+            )
+
+        success_url = success_url or f"{self.app_base_url}/billing/success?session_id={{CHECKOUT_SESSION_ID}}"
+        cancel_url = cancel_url or f"{self.app_base_url}/billing/cancel"
+
+        session = self._stripe.checkout.Session.create(
+            mode="subscription",
+            line_items=[{"price": price_id, "quantity": 1}],
+            success_url=success_url,
+            cancel_url=cancel_url,
+            client_reference_id=workspace_id,
+            metadata={"workspace_id": workspace_id, "tier": tier},
+            subscription_data={"metadata": {"workspace_id": workspace_id, "tier": tier}},
+        )
+        return session.url
+
+    # ------------------------------------------------------------------ #
+    # Webhook routing                                                      #
+    # ------------------------------------------------------------------ #
+
+    def handle_webhook(self, payload: bytes | str, signature: str) -> dict[str, Any]:
+        """Verify signature and dispatch. Returns a summary dict."""
+        if self._stripe is None:
+            raise RuntimeError("Stripe not configured")
+        if not self.stripe_webhook_secret:
+            raise RuntimeError("STRIPE_WEBHOOK_SECRET not set")
+
+        try:
+            event = self._stripe.Webhook.construct_event(
+                payload, signature, self.stripe_webhook_secret
+            )
+        except Exception as e:
+            logger.error(f"Stripe webhook signature verification failed: {e}")
+            raise
+
+        event_type = event["type"]
+        data = event["data"]["object"]
+        logger.info(f"Stripe webhook: {event_type}")
+
+        if event_type == "checkout.session.completed":
+            return self._on_checkout_completed(data)
+        if event_type == "customer.subscription.updated":
+            return self._on_subscription_updated(data)
+        if event_type == "customer.subscription.deleted":
+            return self._on_subscription_deleted(data)
+        if event_type == "invoice.payment_failed":
+            return self._on_payment_failed(data)
+
+        return {"handled": False, "event_type": event_type}
+
+    def _on_checkout_completed(self, session: dict[str, Any]) -> dict[str, Any]:
+        workspace_id = (
+            session.get("client_reference_id")
+            or (session.get("metadata") or {}).get("workspace_id")
+        )
+        tier = (session.get("metadata") or {}).get("tier", "team")
+        if not workspace_id:
+            logger.warning("checkout.session.completed without workspace_id")
+            return {"handled": False, "reason": "no workspace_id"}
+
+        sub = self._load_or_new(workspace_id)
+        sub.stripe_customer_id = session.get("customer")
+        sub.stripe_subscription_id = session.get("subscription")
+        sub.tier = tier
+        sub.status = "active"
+        sub.query_count_current_period = 0
+        self._upsert(sub)
+        return {"handled": True, "workspace_id": workspace_id, "tier": tier, "status": "active"}
+
+    def _on_subscription_updated(self, subscription: dict[str, Any]) -> dict[str, Any]:
+        workspace_id = (subscription.get("metadata") or {}).get("workspace_id")
+        if not workspace_id:
+            return {"handled": False, "reason": "no workspace_id"}
+
+        sub = self._load_or_new(workspace_id)
+        sub.stripe_subscription_id = subscription.get("id")
+        sub.status = subscription.get("status", sub.status)
+        cpe = subscription.get("current_period_end")
+        if cpe:
+            sub.current_period_end = datetime.fromtimestamp(cpe, tz=timezone.utc)
+        # If price changed, reflect tier
+        items = ((subscription.get("items") or {}).get("data") or [])
+        if items:
+            price_id = (items[0].get("price") or {}).get("id")
+            for tier_name, plan in PLANS.items():
+                if plan["stripe_price_id"] == price_id:
+                    sub.tier = tier_name
+                    break
+        self._upsert(sub)
+        return {"handled": True, "workspace_id": workspace_id, "tier": sub.tier, "status": sub.status}
+
+    def _on_subscription_deleted(self, subscription: dict[str, Any]) -> dict[str, Any]:
+        workspace_id = (subscription.get("metadata") or {}).get("workspace_id")
+        if not workspace_id:
+            return {"handled": False, "reason": "no workspace_id"}
+
+        sub = self._load_or_new(workspace_id)
+        sub.status = "canceled"
+        sub.tier = "free"
+        self._upsert(sub)
+        return {"handled": True, "workspace_id": workspace_id, "status": "canceled"}
+
+    def _on_payment_failed(self, invoice: dict[str, Any]) -> dict[str, Any]:
+        customer_id = invoice.get("customer")
+        logger.warning(f"invoice.payment_failed for customer {customer_id}")
+        if self._supabase and customer_id:
+            try:
+                rows = (
+                    self._supabase.table(self.TABLE_NAME)
+                    .select("*")
+                    .eq("stripe_customer_id", customer_id)
+                    .execute()
+                    .data
+                    or []
+                )
+                for row in rows:
+                    sub = WorkspaceSubscription.from_row(row)
+                    sub.status = "past_due"
+                    self._upsert(sub)
+            except Exception as e:
+                logger.error(f"Failed to flag past_due: {e}")
+        return {"handled": True, "event": "payment_failed", "customer_id": customer_id}
+
+    # ------------------------------------------------------------------ #
+    # Subscription queries                                                 #
+    # ------------------------------------------------------------------ #
+
+    def get_workspace_subscription(self, workspace_id: str) -> dict[str, Any] | None:
+        if self._supabase is None:
+            return None
+        try:
+            res = (
+                self._supabase.table(self.TABLE_NAME)
+                .select("*")
+                .eq("workspace_id", workspace_id)
+                .limit(1)
+                .execute()
+            )
+            if not res.data:
+                return None
+            return res.data[0]
+        except Exception as e:
+            logger.error(f"get_workspace_subscription failed: {e}")
+            return None
+
+    # ------------------------------------------------------------------ #
+    # Quota + usage                                                        #
+    # ------------------------------------------------------------------ #
+
+    def check_query_quota(self, workspace_id: str) -> bool:
+        """
+        Returns True if the workspace is within its tier limit (or has no sub),
+        False only when an active paid tier is over its limit.
+        """
+        row = self.get_workspace_subscription(workspace_id)
+        if not row:
+            # No sub record — default allow (free tier, pre-provisioning).
+            return True
+        sub = WorkspaceSubscription.from_row(row)
+        if sub.status not in ("active", "trialing"):
+            return True  # enforcement left to the app layer for inactive subs
+        limit = (PLANS.get(sub.tier) or {}).get("query_limit")
+        if limit is None:
+            return True  # unlimited
+        return sub.query_count_current_period < limit
+
+    def increment_usage(self, workspace_id: str) -> int | None:
+        """
+        Atomically bumps query_count_current_period via a Postgres RPC.
+        Returns the new count, or None if Supabase isn't configured.
+        """
+        if self._supabase is None:
+            return None
+        try:
+            res = self._supabase.rpc(
+                "increment_workspace_usage",
+                {"p_workspace_id": workspace_id},
+            ).execute()
+            if isinstance(res.data, list) and res.data:
+                return int(res.data[0].get("query_count_current_period", 0))
+            if isinstance(res.data, dict):
+                return int(res.data.get("query_count_current_period", 0))
+            return None
+        except Exception as e:
+            logger.error(f"increment_usage failed: {e}")
+            return None
+
+    # ------------------------------------------------------------------ #
+    # Internal helpers                                                     #
+    # ------------------------------------------------------------------ #
+
+    def _load_or_new(self, workspace_id: str) -> WorkspaceSubscription:
+        row = self.get_workspace_subscription(workspace_id)
+        if row:
+            return WorkspaceSubscription.from_row(row)
+        return WorkspaceSubscription(workspace_id=workspace_id)
+
+    def _upsert(self, sub: WorkspaceSubscription) -> None:
+        if self._supabase is None:
+            logger.info(f"[dev] would upsert subscription: {sub.to_row()}")
+            return
+        try:
+            self._supabase.table(self.TABLE_NAME).upsert(
+                sub.to_row(), on_conflict="workspace_id"
+            ).execute()
+        except Exception as e:
+            logger.error(f"Subscription upsert failed: {e}")
