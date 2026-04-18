@@ -22,6 +22,7 @@ from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.documents import Document
 from langchain_core.outputs import LLMResult
 
+from .alerts import SlackAlerter
 from .config import RAGComplianceConfig
 from .models import AuditRecord, RetrievedChunk
 from .storage import AuditStorage
@@ -48,6 +49,7 @@ class RAGComplianceHandler(BaseCallbackHandler):
         session_id: str | None = None,
         extra: dict[str, Any] | None = None,
         billing: Any | None = None,
+        alerter: SlackAlerter | None = None,
     ):
         super().__init__()
         self.config = config or RAGComplianceConfig.from_env()
@@ -66,6 +68,17 @@ class RAGComplianceHandler(BaseCallbackHandler):
                 self.billing = None
         else:
             self.billing = billing
+
+        # Optional Slack alerter. Opt-in via RAGCOMPLIANCE_SLACK_WEBHOOK_URL.
+        # When not configured this stays None so evaluate() overhead is skipped.
+        if alerter is None:
+            try:
+                self.alerter = SlackAlerter.from_env()
+            except Exception as e:
+                logger.debug(f"RAGCompliance: alerter disabled ({e})")
+                self.alerter = None
+        else:
+            self.alerter = alerter
 
         # State accumulated across callback events in one chain run.
         # LCEL pipelines fire on_chain_start/on_chain_end for EVERY sub-runnable,
@@ -184,6 +197,15 @@ class RAGComplianceHandler(BaseCallbackHandler):
             except Exception as e:
                 logger.debug(f"RAGCompliance: increment_usage errored ({e})")
 
+        # Best-effort anomaly alerting. Runs after save() so any alert can
+        # link back to a persisted row, and after increment_usage so metering
+        # isn't gated on alert evaluation succeeding.
+        if self.alerter is not None:
+            try:
+                self.alerter.maybe_alert(record)
+            except Exception as e:
+                logger.debug(f"RAGCompliance: alerter.maybe_alert errored ({e})")
+
         self._reset()
 
     # ------------------------------------------------------------------ #
@@ -248,4 +270,24 @@ class RAGComplianceHandler(BaseCallbackHandler):
         run_id = kwargs.get("run_id")
         if self._root_run_id is not None and run_id == self._root_run_id:
             logger.error(f"RAGCompliance: Chain error — {error}")
+            # Fire a chain_errored alert with whatever state we captured
+            # before the failure. We don't persist a partial record; the
+            # alerter is passed a lightweight synthetic record so it has
+            # enough metadata to link back.
+            if self.alerter is not None:
+                try:
+                    partial = AuditRecord(
+                        session_id=self.session_id,
+                        workspace_id=self.config.workspace_id,
+                        query=self._query,
+                        retrieved_chunks=self._chunks,
+                        llm_answer=self._llm_answer,
+                        model_name=self._model_name,
+                        chain_signature="",
+                        latency_ms=int((time.time() - self._start_time) * 1000),
+                        extra=self.extra,
+                    )
+                    self.alerter.maybe_alert(partial, error=error)
+                except Exception as e:
+                    logger.debug(f"RAGCompliance: error-path alert failed ({e})")
             self._reset()

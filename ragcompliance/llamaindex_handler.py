@@ -27,6 +27,7 @@ import time
 import uuid
 from typing import Any
 
+from .alerts import SlackAlerter
 from .config import RAGComplianceConfig
 from .models import AuditRecord, RetrievedChunk
 from .storage import AuditStorage
@@ -57,6 +58,7 @@ class LlamaIndexRAGComplianceHandler(_LIBase):  # type: ignore[misc]
         session_id: str | None = None,
         extra: dict[str, Any] | None = None,
         billing: Any | None = None,
+        alerter: SlackAlerter | None = None,
     ):
         if not _LLAMA_AVAILABLE:
             raise ImportError(
@@ -79,6 +81,16 @@ class LlamaIndexRAGComplianceHandler(_LIBase):  # type: ignore[misc]
                 self.billing = None
         else:
             self.billing = billing
+
+        # Optional Slack alerter — opt-in via RAGCOMPLIANCE_SLACK_WEBHOOK_URL.
+        if alerter is None:
+            try:
+                self.alerter = SlackAlerter.from_env()
+            except Exception as e:
+                logger.debug(f"RAGCompliance: alerter disabled ({e})")
+                self.alerter = None
+        else:
+            self.alerter = alerter
 
         self._query: str = ""
         self._chunks: list[RetrievedChunk] = []
@@ -128,6 +140,11 @@ class LlamaIndexRAGComplianceHandler(_LIBase):  # type: ignore[misc]
                 self.billing.increment_usage(self.config.workspace_id)
             except Exception:
                 pass
+        if self.alerter is not None:
+            try:
+                self.alerter.maybe_alert(record)
+            except Exception as e:
+                logger.debug(f"RAGCompliance: alerter.maybe_alert errored ({e})")
         self._reset()
 
     def on_event_start(

@@ -183,6 +183,19 @@ Audit writes are fire-and-forget by default. `save()` enqueues the record onto a
 
 If Supabase is unreachable, records buffer in memory up to `RAGCOMPLIANCE_ASYNC_MAX_QUEUE` (default 1000) and then drop with a log warning rather than leak memory. On normal process exit an `atexit` hook drains pending records within `RAGCOMPLIANCE_ASYNC_SHUTDOWN_TIMEOUT` seconds (default 5). You can also call `handler.storage.flush()` explicitly in tests or your own shutdown path. Set `RAGCOMPLIANCE_ASYNC_WRITES=false` if you need a strictly synchronous write (for example, tests that inspect storage mid-chain).
 
+## Anomaly alerts
+
+Set `RAGCOMPLIANCE_SLACK_WEBHOOK_URL` to a Slack incoming-webhook URL (or any compatible receiver: Discord, Teams via shim, your own HTTP endpoint) and the handler will fire async alerts when a chain looks unhealthy. Four rules today, all with env-configurable thresholds:
+
+| Rule | Fires when |
+|---|---|
+| `retrieval_returned_zero_chunks` | The retriever returned no documents |
+| `low_similarity` | The best matching chunk scored below `RAGCOMPLIANCE_SLACK_MIN_SIMILARITY` (default 0.3) |
+| `chain_slow` | End-to-end latency exceeded `RAGCOMPLIANCE_SLACK_SLOW_CHAIN_MS` (default 10000) |
+| `chain_errored` | LangChain or LlamaIndex raised before the chain completed |
+
+Alerts post on a separate daemon worker with a bounded queue, so Slack outages can't back-pressure your chain. When the queue fills, alerts drop with a log warning. Set `RAGCOMPLIANCE_SLACK_DASHBOARD_URL` to include a `View in dashboard` link in each payload.
+
 ## Why RAGCompliance
 
 | Problem | RAGCompliance |
@@ -223,7 +236,7 @@ pytest -v
 - [x] Stripe billing + quota metering with period-rollover reset
 - [x] Fail-closed quota enforcement (`RAGCOMPLIANCE_ENFORCE_QUOTA=true`)
 - [x] Async audit writes (fire-and-forget, bounded-queue worker, atexit drain)
-- [ ] Slack alerts for anomalous queries
+- [x] Slack alerts for anomalous queries (zero chunks, low similarity, slow, errored)
 - [ ] SOC 2 report template generator
 - [ ] SSO (SAML / OIDC) on the dashboard
 
