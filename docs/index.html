@@ -1,0 +1,1295 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>ragcompliance — audit trail middleware for RAG in regulated industries</title>
+<meta name="description" content="Drop-in LangChain and LlamaIndex middleware that logs, signs, and surfaces every retrieval–generation chain. Built for teams that have to answer auditors." />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght,SOFT,WONK@0,9..144,300..700,0..100,0..1;1,9..144,300..700,0..100,0..1&family=JetBrains+Mono:ital,wght@0,400..700;1,400..600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:        #F2EDE0;
+    --bg-2:      #EAE2CE;
+    --bg-3:      #DCD1B6;
+    --ink:       #181612;
+    --ink-2:     #3A352C;
+    --ink-dim:   #6A6354;
+    --seal:      #9C5A24;
+    --seal-2:    #C47A3A;
+    --seal-3:    #E8C88A;
+    --verify:    #3A6846;
+    --alert:     #B23A22;
+    --line:      #CABFA6;
+    --line-2:    #B9AD90;
+    --serif: "Fraunces", "EB Garamond", Georgia, "Times New Roman", serif;
+    --mono:  "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    --measure: 68ch;
+    --stroke: 1px solid var(--line);
+    --stroke-strong: 1px solid var(--line-2);
+  }
+
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--mono);
+    font-size: 15px;
+    line-height: 1.55;
+    font-feature-settings: "ss01", "cv11";
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  /* soft paper texture */
+  body::before {
+    content: "";
+    position: fixed; inset: 0;
+    background:
+      radial-gradient(1200px 600px at 10% -10%, rgba(196,122,58,0.08), transparent 60%),
+      radial-gradient(900px 500px at 110% 20%, rgba(58,104,70,0.06), transparent 60%),
+      repeating-linear-gradient(0deg, rgba(24,22,18,0.012) 0 1px, transparent 1px 3px);
+    pointer-events: none;
+    z-index: 0;
+  }
+  body::after {
+    content: "";
+    position: fixed; inset: 0;
+    background-image: radial-gradient(rgba(24,22,18,0.05) 0.5px, transparent 0.5px);
+    background-size: 3px 3px;
+    mix-blend-mode: multiply;
+    opacity: .35;
+    pointer-events: none;
+    z-index: 0;
+  }
+  main, header, footer { position: relative; z-index: 1; }
+
+  a { color: inherit; text-decoration-color: var(--seal); text-underline-offset: 3px; text-decoration-thickness: 1px; }
+  a:hover { color: var(--seal); }
+
+  ::selection { background: var(--seal-3); color: var(--ink); }
+
+  /* ─── layout ─────────────────────────────────────────────── */
+  .wrap {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 0 32px;
+  }
+  @media (max-width: 640px) { .wrap { padding: 0 20px; } }
+
+  /* ─── top strip ──────────────────────────────────────────── */
+  .strip {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--ink);
+    background: var(--ink);
+    color: var(--bg);
+  }
+  .strip-inner {
+    display: flex; align-items: center; gap: 24px;
+    padding: 9px 32px;
+    overflow: hidden;
+    white-space: nowrap;
+  }
+  .strip-inner span { opacity: .82; }
+  .strip-inner .dot { color: var(--seal-2); opacity: 1; }
+
+  /* ─── nav ────────────────────────────────────────────────── */
+  nav.top {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    align-items: center;
+    gap: 24px;
+    padding: 22px 32px;
+    border-bottom: var(--stroke);
+    background: color-mix(in oklab, var(--bg) 92%, transparent);
+    position: sticky; top: 0; z-index: 20;
+    backdrop-filter: blur(8px);
+  }
+  nav.top .mark {
+    font-family: var(--mono);
+    font-size: 14px;
+    letter-spacing: -0.01em;
+    font-weight: 600;
+    display: inline-flex; align-items: center; gap: 10px;
+  }
+  nav.top .mark .seal {
+    width: 22px; height: 22px; border-radius: 50%;
+    background: radial-gradient(circle at 30% 30%, var(--seal-2), var(--seal));
+    box-shadow: inset 0 0 0 1px rgba(24,22,18,.25), 0 1px 0 rgba(24,22,18,.08);
+    position: relative;
+  }
+  nav.top .mark .seal::after {
+    content: "✓";
+    position: absolute; inset: 0;
+    display: grid; place-items: center;
+    color: var(--bg);
+    font-family: var(--serif);
+    font-size: 13px;
+    font-style: italic;
+  }
+  nav.top ul { display: flex; gap: 22px; justify-self: center; list-style: none; padding: 0; margin: 0; font-size: 13px; }
+  nav.top ul a { text-decoration: none; color: var(--ink-2); }
+  nav.top ul a:hover { color: var(--seal); }
+  nav.top .cta {
+    display: inline-flex; align-items: center; gap: 8px;
+    font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase;
+    padding: 9px 14px;
+    background: var(--ink); color: var(--bg);
+    border: 1px solid var(--ink);
+    text-decoration: none;
+    transition: background .2s, color .2s;
+  }
+  nav.top .cta:hover { background: var(--seal); border-color: var(--seal); color: var(--bg); }
+  nav.top .ver {
+    font-size: 11px; color: var(--ink-dim);
+    padding: 3px 7px; border: var(--stroke);
+    border-radius: 2px;
+    margin-left: 8px;
+  }
+  @media (max-width: 760px) {
+    nav.top ul { display: none; }
+    nav.top { grid-template-columns: auto auto; }
+  }
+
+  /* ─── hero ───────────────────────────────────────────────── */
+  .hero {
+    padding: 96px 0 72px;
+    border-bottom: var(--stroke);
+  }
+  .hero-grid {
+    display: grid;
+    grid-template-columns: 1.15fr 1fr;
+    gap: 72px;
+    align-items: center;
+  }
+  @media (max-width: 960px) { .hero-grid { grid-template-columns: 1fr; gap: 48px; } }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 11px; letter-spacing: 0.2em; text-transform: uppercase;
+    color: var(--ink-dim);
+    display: inline-flex; align-items: center; gap: 10px;
+    margin-bottom: 28px;
+  }
+  .eyebrow::before {
+    content: ""; width: 24px; height: 1px; background: var(--seal);
+  }
+  h1.hero-title {
+    font-family: var(--serif);
+    font-weight: 350;
+    font-size: clamp(46px, 6.6vw, 88px);
+    line-height: 0.98;
+    letter-spacing: -0.025em;
+    margin: 0 0 28px;
+    color: var(--ink);
+    font-variation-settings: "opsz" 144, "SOFT" 30, "WONK" 1;
+  }
+  h1.hero-title em {
+    font-style: italic;
+    color: var(--seal);
+    font-variation-settings: "opsz" 144, "SOFT" 80, "WONK" 1;
+  }
+  h1.hero-title .strike {
+    text-decoration: line-through;
+    text-decoration-color: var(--alert);
+    text-decoration-thickness: 2px;
+    color: var(--ink-dim);
+  }
+  .hero-sub {
+    font-family: var(--mono);
+    font-size: 15px;
+    color: var(--ink-2);
+    max-width: 54ch;
+    margin: 0 0 36px;
+    line-height: 1.7;
+  }
+  .hero-actions { display: flex; gap: 12px; flex-wrap: wrap; align-items: stretch; }
+  .install {
+    display: inline-flex; align-items: center; gap: 12px;
+    background: var(--ink); color: var(--bg);
+    padding: 12px 14px 12px 16px;
+    font-family: var(--mono);
+    font-size: 13px;
+    letter-spacing: -0.01em;
+    cursor: pointer;
+    border: 1px solid var(--ink);
+    transition: background .2s, color .2s;
+    user-select: none;
+  }
+  .install:hover { background: var(--seal); border-color: var(--seal); }
+  .install .caret { color: var(--seal-2); transition: color .2s; }
+  .install:hover .caret { color: var(--bg); }
+  .install .copy {
+    display: inline-grid; place-items: center;
+    width: 22px; height: 22px;
+    border: 1px solid rgba(242,237,224,0.25);
+    border-radius: 2px;
+    font-size: 11px;
+  }
+  .install .copy.done { border-color: var(--seal-2); color: var(--seal-2); }
+  .secondary {
+    display: inline-flex; align-items: center; gap: 10px;
+    padding: 12px 16px;
+    font-family: var(--mono);
+    font-size: 13px;
+    text-decoration: none;
+    color: var(--ink);
+    border: var(--stroke-strong);
+    transition: border-color .2s, color .2s, background .2s;
+  }
+  .secondary:hover { color: var(--seal); border-color: var(--seal); }
+  .secondary .arrow { font-family: var(--serif); font-style: italic; font-size: 18px; line-height: 1; }
+
+  .hero-meta {
+    margin-top: 48px;
+    display: grid; grid-template-columns: repeat(3, auto);
+    gap: 32px;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink-dim);
+  }
+  .hero-meta strong { color: var(--ink); font-weight: 600; display: block; font-size: 22px; letter-spacing: -0.01em; text-transform: none; font-family: var(--serif); font-weight: 400; font-style: italic; margin-bottom: 4px; }
+  @media (max-width: 520px) { .hero-meta { grid-template-columns: 1fr 1fr; } }
+
+  /* ─── ledger visualization ────────────────────────────────── */
+  .ledger {
+    background: var(--bg-2);
+    border: var(--stroke-strong);
+    padding: 22px 22px 16px;
+    position: relative;
+    box-shadow:
+      0 1px 0 rgba(24,22,18,0.04),
+      0 20px 40px -20px rgba(24,22,18,0.18),
+      0 2px 0 var(--bg-3);
+  }
+  .ledger::before {
+    content: "";
+    position: absolute; top: 10px; left: 10px; right: 10px; bottom: 10px;
+    border: 1px dashed var(--line-2);
+    pointer-events: none;
+    opacity: .6;
+  }
+  .ledger-head {
+    display: flex; align-items: baseline; justify-content: space-between;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--line);
+    margin-bottom: 14px;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--ink-dim);
+  }
+  .ledger-head .title {
+    font-family: var(--serif);
+    font-style: italic;
+    font-weight: 400;
+    font-size: 17px;
+    letter-spacing: 0;
+    text-transform: none;
+    color: var(--ink);
+  }
+  .ledger-head .stamp {
+    color: var(--seal);
+    font-family: var(--serif);
+    font-style: italic;
+    font-size: 13px;
+    letter-spacing: 0.02em;
+    text-transform: none;
+  }
+  .record {
+    display: grid;
+    grid-template-columns: 44px 1fr auto;
+    gap: 14px;
+    align-items: start;
+    padding: 10px 0;
+    border-bottom: 1px dotted var(--line);
+    font-family: var(--mono);
+    font-size: 12px;
+    opacity: 0;
+    transform: translateY(6px);
+    animation: slideIn .5s cubic-bezier(.2,.7,.2,1) forwards;
+  }
+  .record:last-child { border-bottom: none; }
+  .record .seq {
+    color: var(--ink-dim);
+    letter-spacing: -0.02em;
+    padding-top: 1px;
+  }
+  .record .q {
+    color: var(--ink);
+    font-size: 13px;
+    line-height: 1.5;
+  }
+  .record .q .source {
+    display: block;
+    color: var(--ink-dim);
+    font-size: 11px;
+    margin-top: 3px;
+  }
+  .record .sig {
+    font-size: 11px;
+    color: var(--verify);
+    letter-spacing: 0.04em;
+    padding-top: 2px;
+    white-space: nowrap;
+  }
+  .record.flagged .sig { color: var(--alert); }
+  .record.flagged .q strong { color: var(--alert); text-decoration: line-through; text-decoration-color: var(--alert); }
+  .record .dot {
+    display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+    background: var(--verify); margin-right: 4px;
+    vertical-align: 1px;
+  }
+  .record.flagged .dot { background: var(--alert); }
+
+  @keyframes slideIn {
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .ledger-foot {
+    margin-top: 12px;
+    padding-top: 10px;
+    border-top: 1px solid var(--line);
+    display: flex; align-items: center; justify-content: space-between;
+    font-family: var(--mono); font-size: 11px;
+    color: var(--ink-dim);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  .ledger-foot .ver-badge {
+    display: inline-flex; align-items: center; gap: 6px;
+    color: var(--verify);
+  }
+  .ledger-foot .ver-badge::before {
+    content: ""; width: 6px; height: 6px; background: var(--verify); border-radius: 50%;
+  }
+
+  /* ─── section ─────────────────────────────────────────────── */
+  section { padding: 96px 0; border-bottom: var(--stroke); }
+  @media (max-width: 760px) { section { padding: 72px 0; } }
+
+  .section-tag {
+    font-family: var(--mono);
+    font-size: 11px; letter-spacing: 0.2em; text-transform: uppercase;
+    color: var(--seal);
+    margin-bottom: 20px;
+  }
+  .section-head {
+    font-family: var(--serif);
+    font-weight: 350;
+    font-size: clamp(32px, 4.4vw, 52px);
+    line-height: 1.05;
+    letter-spacing: -0.02em;
+    margin: 0 0 28px;
+    color: var(--ink);
+    max-width: 22ch;
+    font-variation-settings: "opsz" 144, "SOFT" 30;
+  }
+  .section-head em { font-style: italic; color: var(--seal); font-variation-settings: "opsz" 144, "SOFT" 80, "WONK" 1; }
+  .section-lede {
+    font-family: var(--mono);
+    font-size: 15px;
+    line-height: 1.7;
+    color: var(--ink-2);
+    max-width: 64ch;
+  }
+
+  /* ─── problem ─────────────────────────────────────────────── */
+  .problem-grid {
+    display: grid;
+    grid-template-columns: 1.1fr 1fr;
+    gap: 72px;
+    align-items: start;
+  }
+  @media (max-width: 960px) { .problem-grid { grid-template-columns: 1fr; gap: 40px; } }
+  .stat {
+    font-family: var(--serif);
+    font-size: clamp(68px, 10vw, 132px);
+    line-height: 0.95;
+    letter-spacing: -0.04em;
+    color: var(--seal);
+    font-style: italic;
+    font-weight: 300;
+    font-variation-settings: "opsz" 144, "SOFT" 100, "WONK" 1;
+  }
+  .stat-note {
+    font-family: var(--mono); font-size: 12px; color: var(--ink-dim);
+    letter-spacing: 0.08em; text-transform: uppercase;
+    margin-top: 8px;
+  }
+  .quotes {
+    display: grid; gap: 20px;
+  }
+  .quote {
+    font-family: var(--serif);
+    font-style: italic;
+    font-size: 20px;
+    line-height: 1.45;
+    color: var(--ink);
+    padding-left: 18px;
+    border-left: 2px solid var(--seal-2);
+  }
+  .quote cite {
+    display: block;
+    font-family: var(--mono);
+    font-style: normal;
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--ink-dim);
+    margin-top: 10px;
+  }
+
+  /* ─── anatomy (without/with) ──────────────────────────────── */
+  .split {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0;
+    margin-top: 48px;
+    border: var(--stroke-strong);
+  }
+  @media (max-width: 760px) { .split { grid-template-columns: 1fr; } }
+  .split > div {
+    padding: 28px 28px 32px;
+    background: var(--bg-2);
+  }
+  .split > div + div {
+    border-left: var(--stroke-strong);
+    background: var(--bg);
+  }
+  @media (max-width: 760px) {
+    .split > div + div { border-left: 0; border-top: var(--stroke-strong); }
+  }
+  .split h3 {
+    font-family: var(--serif); font-style: italic; font-weight: 400;
+    font-size: 22px; margin: 0 0 6px; color: var(--ink);
+  }
+  .split p.sub {
+    font-family: var(--mono); font-size: 12px; color: var(--ink-dim);
+    margin: 0 0 18px; letter-spacing: 0.04em;
+  }
+  .split .ghost {
+    font-family: var(--mono); font-size: 13px; color: var(--ink-dim);
+    line-height: 1.7;
+  }
+  .split .ghost .muted {
+    color: var(--ink-dim);
+    opacity: .7;
+    font-style: italic;
+  }
+  .annot-record {
+    font-family: var(--mono); font-size: 12.5px; line-height: 1.8; color: var(--ink);
+  }
+  .annot-record .k { color: var(--seal); }
+  .annot-record .s { color: var(--verify); }
+  .annot-record .n { color: var(--ink-2); }
+  .annot-record .c { color: var(--ink-dim); font-style: italic; }
+
+  /* ─── tabs + code ─────────────────────────────────────────── */
+  .tabs {
+    display: inline-flex; gap: 0; border: var(--stroke-strong);
+    margin-bottom: 20px;
+  }
+  .tab {
+    background: var(--bg-2);
+    padding: 10px 18px;
+    font-family: var(--mono); font-size: 12px;
+    letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--ink-2);
+    cursor: pointer;
+    border: none;
+    border-right: 1px solid var(--line-2);
+    transition: background .15s, color .15s;
+  }
+  .tab:last-child { border-right: none; }
+  .tab[aria-selected="true"] { background: var(--ink); color: var(--bg); }
+  .tab:hover:not([aria-selected="true"]) { background: var(--bg-3); }
+  .codeblock {
+    background: var(--ink);
+    color: var(--bg);
+    padding: 22px 24px;
+    position: relative;
+    font-family: var(--mono);
+    font-size: 13px;
+    line-height: 1.65;
+    overflow-x: auto;
+    border: 1px solid var(--ink);
+    box-shadow: 0 24px 48px -24px rgba(24,22,18,.3);
+  }
+  .codeblock .copybtn {
+    position: absolute; top: 12px; right: 12px;
+    background: transparent;
+    border: 1px solid rgba(242,237,224,0.2);
+    color: var(--bg-2);
+    font-family: var(--mono); font-size: 10px;
+    letter-spacing: 0.12em; text-transform: uppercase;
+    padding: 5px 10px;
+    cursor: pointer;
+  }
+  .codeblock .copybtn:hover { border-color: var(--seal-2); color: var(--seal-2); }
+  .codeblock .copybtn.done { border-color: var(--verify); color: var(--verify); }
+  .codeblock .kw { color: #E8C88A; }
+  .codeblock .fn { color: #E8AC71; }
+  .codeblock .str { color: #A8C199; }
+  .codeblock .num { color: #D4A244; }
+  .codeblock .cm { color: #7A7164; font-style: italic; }
+  .codeblock .cls { color: #E8C88A; }
+  .codeblock .var { color: #EDE4D0; }
+  .codeblock pre { margin: 0; white-space: pre; }
+  .codepanel { display: none; }
+  .codepanel[data-active] { display: block; }
+
+  /* ─── capabilities grid ──────────────────────────────────── */
+  .caps {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0;
+    border: var(--stroke-strong);
+  }
+  .caps > article {
+    padding: 28px;
+    background: var(--bg);
+    border-right: var(--stroke);
+    border-bottom: var(--stroke);
+    transition: background .2s;
+    position: relative;
+  }
+  .caps > article:hover { background: var(--bg-2); }
+  .caps > article::before {
+    content: "";
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: var(--seal);
+    transform: scaleX(0);
+    transform-origin: left;
+    transition: transform .3s ease-out;
+  }
+  .caps > article:hover::before { transform: scaleX(1); }
+  .caps > article:nth-child(3n) { border-right: none; }
+  .caps > article:nth-last-child(-n+3) { border-bottom: none; }
+  @media (max-width: 900px) {
+    .caps { grid-template-columns: repeat(2, 1fr); }
+    .caps > article { border-right: var(--stroke); border-bottom: var(--stroke); }
+    .caps > article:nth-child(3n) { border-right: var(--stroke); }
+    .caps > article:nth-child(2n) { border-right: none; }
+    .caps > article:nth-last-child(-n+2) { border-bottom: none; }
+    .caps > article:nth-last-child(-n+3):not(:nth-last-child(-n+2)) { border-bottom: var(--stroke); }
+  }
+  @media (max-width: 560px) {
+    .caps { grid-template-columns: 1fr; }
+    .caps > article { border-right: none !important; border-bottom: var(--stroke) !important; }
+    .caps > article:last-child { border-bottom: none !important; }
+  }
+  .cap-num {
+    font-family: var(--serif); font-style: italic; font-weight: 300;
+    font-size: 32px; color: var(--seal);
+    margin-bottom: 12px;
+    font-variation-settings: "opsz" 144, "WONK" 1;
+  }
+  .cap h4 {
+    font-family: var(--serif); font-weight: 400; font-size: 20px;
+    margin: 0 0 10px; letter-spacing: -0.01em;
+  }
+  .cap p {
+    font-family: var(--mono); font-size: 13px;
+    line-height: 1.65; color: var(--ink-2); margin: 0;
+  }
+  .cap .kbd {
+    display: inline-block;
+    font-family: var(--mono); font-size: 11px;
+    padding: 1px 6px;
+    background: var(--bg-3); color: var(--ink);
+    border-radius: 2px;
+    margin: 0 1px;
+  }
+
+  /* ─── pricing ────────────────────────────────────────────── */
+  .pricing {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 24px;
+    margin-top: 36px;
+  }
+  @media (max-width: 720px) { .pricing { grid-template-columns: 1fr; } }
+  .plan {
+    border: var(--stroke-strong);
+    padding: 32px;
+    background: var(--bg-2);
+    position: relative;
+    overflow: hidden;
+  }
+  .plan.featured {
+    background: var(--ink);
+    color: var(--bg);
+    border-color: var(--ink);
+  }
+  .plan h3 {
+    font-family: var(--serif); font-weight: 400; font-style: italic;
+    font-size: 24px; margin: 0 0 8px;
+    font-variation-settings: "opsz" 144, "SOFT" 50;
+  }
+  .plan .price {
+    font-family: var(--serif); font-size: 64px; font-weight: 300;
+    line-height: 1;
+    margin: 12px 0 4px;
+    letter-spacing: -0.03em;
+    font-variation-settings: "opsz" 144, "WONK" 1;
+  }
+  .plan .price sup { font-size: 22px; vertical-align: top; position: relative; top: 12px; }
+  .plan .price-sub {
+    font-family: var(--mono); font-size: 12px;
+    letter-spacing: 0.1em; text-transform: uppercase;
+    color: var(--ink-dim); margin-bottom: 24px;
+  }
+  .plan.featured .price-sub { color: var(--seal-3); }
+  .plan ul {
+    list-style: none; padding: 0; margin: 0 0 28px;
+    display: grid; gap: 10px;
+    font-family: var(--mono); font-size: 13px;
+  }
+  .plan ul li::before {
+    content: "✓"; color: var(--seal); margin-right: 10px;
+    font-family: var(--serif); font-style: italic;
+  }
+  .plan.featured ul li::before { color: var(--seal-2); }
+  .plan .plan-cta {
+    display: inline-flex; align-items: center; gap: 10px;
+    padding: 12px 18px;
+    font-family: var(--mono); font-size: 12px;
+    letter-spacing: 0.1em; text-transform: uppercase;
+    text-decoration: none;
+    background: var(--ink); color: var(--bg);
+    border: 1px solid var(--ink);
+  }
+  .plan.featured .plan-cta {
+    background: var(--seal); color: var(--bg); border-color: var(--seal);
+  }
+  .plan.featured .plan-cta:hover { background: var(--seal-2); }
+  .plan .plan-cta:hover { background: var(--seal); border-color: var(--seal); }
+
+  /* ─── roadmap ─────────────────────────────────────────────── */
+  .roadmap {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px 48px;
+    margin-top: 36px;
+    font-family: var(--mono);
+    font-size: 14px;
+  }
+  @media (max-width: 720px) { .roadmap { grid-template-columns: 1fr; } }
+  .roadmap div {
+    display: grid;
+    grid-template-columns: 28px 1fr auto;
+    align-items: baseline;
+    gap: 8px;
+    padding: 10px 0;
+    border-bottom: 1px dotted var(--line);
+    color: var(--ink);
+  }
+  .roadmap div .marker {
+    color: var(--verify);
+    font-family: var(--serif); font-style: italic; font-size: 18px;
+  }
+  .roadmap div.planned { color: var(--ink-dim); }
+  .roadmap div.planned .marker { color: var(--ink-dim); }
+  .roadmap div .tag {
+    font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase;
+    color: var(--ink-dim);
+  }
+  .roadmap div.planned .tag { color: var(--seal); }
+
+  /* ─── CTA band ────────────────────────────────────────────── */
+  .cta-band {
+    padding: 120px 0;
+    text-align: center;
+    border-bottom: var(--stroke);
+    background:
+      linear-gradient(0deg, var(--bg-2) 0%, var(--bg) 100%);
+  }
+  .cta-band h2 {
+    font-family: var(--serif);
+    font-weight: 300;
+    font-style: italic;
+    font-size: clamp(40px, 6vw, 76px);
+    line-height: 1.02;
+    letter-spacing: -0.03em;
+    margin: 0 auto 32px;
+    max-width: 20ch;
+    color: var(--ink);
+    font-variation-settings: "opsz" 144, "SOFT" 80, "WONK" 1;
+  }
+  .cta-band .actions {
+    display: inline-flex; gap: 12px; flex-wrap: wrap; justify-content: center;
+  }
+
+  /* ─── footer ──────────────────────────────────────────────── */
+  footer {
+    padding: 60px 0 32px;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--ink-dim);
+  }
+  footer .cols {
+    display: grid;
+    grid-template-columns: 2fr repeat(3, 1fr);
+    gap: 48px;
+    margin-bottom: 48px;
+  }
+  @media (max-width: 760px) { footer .cols { grid-template-columns: 1fr 1fr; gap: 32px; } }
+  footer h5 {
+    font-family: var(--mono); font-size: 10px; letter-spacing: 0.2em;
+    text-transform: uppercase; color: var(--ink);
+    margin: 0 0 16px;
+  }
+  footer ul { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
+  footer a { text-decoration: none; color: var(--ink-2); }
+  footer a:hover { color: var(--seal); }
+  footer .brand {
+    font-family: var(--serif); font-style: italic; font-weight: 400;
+    font-size: 32px; color: var(--ink);
+    margin: 0 0 12px;
+    font-variation-settings: "opsz" 144, "SOFT" 80, "WONK" 1;
+  }
+  footer .tag {
+    max-width: 40ch;
+    line-height: 1.6;
+  }
+  footer .bottom {
+    padding-top: 24px;
+    border-top: var(--stroke);
+    display: flex; justify-content: space-between; flex-wrap: wrap; gap: 16px;
+  }
+
+  /* ─── utility ─────────────────────────────────────────────── */
+  .reveal {
+    opacity: 0; transform: translateY(16px);
+    transition: opacity .8s cubic-bezier(.2,.7,.2,1), transform .8s cubic-bezier(.2,.7,.2,1);
+  }
+  .reveal.in {
+    opacity: 1; transform: translateY(0);
+  }
+
+  /* ensure focus is visible for keyboard users */
+  :focus-visible {
+    outline: 2px solid var(--seal); outline-offset: 3px;
+  }
+</style>
+</head>
+<body>
+
+<div class="strip">
+  <div class="strip-inner">
+    <span>v0.1.3 on PyPI</span>
+    <span class="dot">●</span>
+    <span>LangChain + LlamaIndex</span>
+    <span class="dot">●</span>
+    <span>SHA-256 chain signature</span>
+    <span class="dot">●</span>
+    <span>Supabase row-level security</span>
+    <span class="dot">●</span>
+    <span>SOC 2 evidence export</span>
+    <span class="dot">●</span>
+    <span>OIDC SSO</span>
+    <span class="dot">●</span>
+    <span>Stripe live-mode readiness probe</span>
+  </div>
+</div>
+
+<nav class="top">
+  <a href="#top" class="mark">
+    <span class="seal" aria-hidden="true"></span>
+    <span>ragcompliance</span>
+    <span class="ver">v0.1.3</span>
+  </a>
+  <ul>
+    <li><a href="#problem">Why</a></li>
+    <li><a href="#capture">What it captures</a></li>
+    <li><a href="#integrate">Integrate</a></li>
+    <li><a href="#capabilities">Capabilities</a></li>
+    <li><a href="#pricing">Pricing</a></li>
+    <li><a href="docs.html">Docs</a></li>
+  </ul>
+  <a class="cta" href="https://github.com/dakshtrehan/ragcompliance" target="_blank" rel="noopener">
+    <span>GitHub</span>
+    <svg width="10" height="10" viewBox="0 0 10 10" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M1 9L9 1M9 1H2M9 1v7" stroke="currentColor" stroke-width="1.5"/></svg>
+  </a>
+</nav>
+
+<main id="top">
+
+  <!-- ─── HERO ─── -->
+  <section class="hero" style="border-bottom: var(--stroke)">
+    <div class="wrap">
+      <div class="hero-grid">
+        <div>
+          <div class="eyebrow">Audit trail for retrieval-augmented generation</div>
+          <h1 class="hero-title">
+            Proof for <em>every</em> answer<br>your RAG ever gave.
+          </h1>
+          <p class="hero-sub">
+            ragcompliance is drop-in middleware for LangChain and LlamaIndex that logs the full chain — query, retrieved chunks with source URLs and similarity scores, the LLM answer, model name, latency — signs it with SHA-256, and writes one row per invocation to your own Supabase, behind row-level security per workspace. No chain rewrites. No black box.
+          </p>
+          <div class="hero-actions">
+            <div class="install" id="install" role="button" tabindex="0" aria-label="Copy install command">
+              <span class="caret">$</span>
+              <span id="install-cmd">pip install "ragcompliance[supabase]"</span>
+              <span class="copy" id="install-copy" aria-hidden="true">⧉</span>
+            </div>
+            <a class="secondary" href="docs.html">
+              <span>Read the docs</span>
+              <span class="arrow">→</span>
+            </a>
+          </div>
+          <div class="hero-meta">
+            <div><strong>126</strong>tests green</div>
+            <div><strong>&lt;1ms</strong>handler overhead</div>
+            <div><strong>MIT</strong>licensed</div>
+          </div>
+        </div>
+
+        <div class="ledger" aria-label="Sample audit ledger">
+          <div class="ledger-head">
+            <span class="title">rag_audit_logs · acme-prod</span>
+            <span class="stamp">verified</span>
+          </div>
+          <div class="record" style="animation-delay: .15s">
+            <span class="seq">#0041</span>
+            <span class="q"><span class="dot"></span>Does policy §4.2 cover indemnification?<span class="source">→ contract-v3.pdf · chunk-042 · 0.94</span></span>
+            <span class="sig">sha256:a3f8c2d1…</span>
+          </div>
+          <div class="record" style="animation-delay: .35s">
+            <span class="seq">#0042</span>
+            <span class="q"><span class="dot"></span>Summarise PSA termination rules.<span class="source">→ psa-master.pdf · chunk-014 · 0.88</span></span>
+            <span class="sig">sha256:9b4e1d77…</span>
+          </div>
+          <div class="record flagged" style="animation-delay: .55s">
+            <span class="seq">#0043</span>
+            <span class="q"><span class="dot"></span><strong>Tampered post-write</strong><span class="source">→ signature mismatch on recompute</span></span>
+            <span class="sig">sha256:invalid ✗</span>
+          </div>
+          <div class="record" style="animation-delay: .75s">
+            <span class="seq">#0044</span>
+            <span class="q"><span class="dot"></span>What's the liability cap clause?<span class="source">→ msa-2025.pdf · chunk-031 · 0.91</span></span>
+            <span class="sig">sha256:7e2af055…</span>
+          </div>
+          <div class="record" style="animation-delay: .95s">
+            <span class="seq">#0045</span>
+            <span class="q"><span class="dot"></span>Explain the notice window for breach.<span class="source">→ msa-2025.pdf · chunk-058 · 0.89</span></span>
+            <span class="sig">sha256:44d7be12…</span>
+          </div>
+          <div class="ledger-foot">
+            <span class="ver-badge">4 of 5 verified</span>
+            <span>POST /api/logs</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─── PROBLEM ─── -->
+  <section id="problem">
+    <div class="wrap">
+      <div class="section-tag">01 · The gap</div>
+      <h2 class="section-head">RAG doesn't fail in the model.<br>It fails in the <em>audit.</em></h2>
+      <p class="section-lede" style="margin-bottom: 72px;">
+        In regulated industries — finance, healthcare, legal, insurance — the question is never "is your retrieval good?" It's "can you prove, for any given answer on any given day, which document was cited, what the model saw, and that no one tampered with it since?" Most RAG stacks can't.
+      </p>
+
+      <div class="problem-grid">
+        <div>
+          <div class="stat">40–60<span style="font-size: 0.6em;">%</span></div>
+          <div class="stat-note">of enterprise RAG pilots never reach production, blocked by governance review.</div>
+        </div>
+        <div class="quotes">
+          <div class="quote">
+            "Show me the retrieval-to-answer chain for every invocation in Q1, and prove it hasn't been modified."
+            <cite>— Internal audit, tier-1 bank</cite>
+          </div>
+          <div class="quote">
+            "We need one row per query. Source documents, chunk IDs, the answer verbatim. And row-level security across tenants."
+            <cite>— Compliance, health-tech SaaS</cite>
+          </div>
+          <div class="quote">
+            "If your answer changes tomorrow, I want to know exactly what changed. Model, prompt, source — all of it."
+            <cite>— GRC lead, fintech</cite>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─── CAPTURE / ANATOMY ─── -->
+  <section id="capture">
+    <div class="wrap">
+      <div class="section-tag">02 · What it captures</div>
+      <h2 class="section-head">One row per chain.<br>Signed, <em>stored,</em> surfaced.</h2>
+      <p class="section-lede">
+        Left: what your chain normally leaves behind. Right: what ragcompliance writes to your warehouse. No wrappers, no forks — just a callback handler passed through LangChain's <code style="font-family:var(--mono); color:var(--seal);">config={"callbacks":[handler]}</code> or LlamaIndex's <code style="font-family:var(--mono); color:var(--seal);">CallbackManager</code>.
+      </p>
+
+      <div class="split">
+        <div>
+          <h3>Without</h3>
+          <p class="sub">Your chain runs. A string comes back. Good luck.</p>
+          <div class="ghost">
+            <div>› chain.invoke("Does §4.2 cover indemnification?")</div>
+            <div>› "Yes, section 4.2 obligates Party A to indemnify…"</div>
+            <div class="muted">› — no source, no chunk, no signature, no row —</div>
+            <div class="muted">› — compliance team: no.</div>
+          </div>
+        </div>
+        <div>
+          <h3>With ragcompliance</h3>
+          <p class="sub">One audited row, chained by signature.</p>
+          <div class="annot-record">{<br>
+            &nbsp;&nbsp;<span class="k">"id"</span>: <span class="s">"c4e91…"</span>,<br>
+            &nbsp;&nbsp;<span class="k">"session_id"</span>: <span class="s">"user-abc"</span>,<br>
+            &nbsp;&nbsp;<span class="k">"workspace_id"</span>: <span class="s">"acme-prod"</span>,<br>
+            &nbsp;&nbsp;<span class="k">"query"</span>: <span class="s">"Does §4.2 cover indemnification?"</span>,<br>
+            &nbsp;&nbsp;<span class="k">"retrieved_chunks"</span>: [{<br>
+            &nbsp;&nbsp;&nbsp;&nbsp;<span class="k">"source_url"</span>: <span class="s">"contract-v3.pdf"</span>,<br>
+            &nbsp;&nbsp;&nbsp;&nbsp;<span class="k">"chunk_id"</span>: <span class="s">"chunk-042"</span>,<br>
+            &nbsp;&nbsp;&nbsp;&nbsp;<span class="k">"similarity_score"</span>: <span class="n">0.94</span><br>
+            &nbsp;&nbsp;}],<br>
+            &nbsp;&nbsp;<span class="k">"llm_answer"</span>: <span class="s">"Yes, section 4.2…"</span>,<br>
+            &nbsp;&nbsp;<span class="k">"model_name"</span>: <span class="s">"gpt-4o-mini"</span>,<br>
+            &nbsp;&nbsp;<span class="k">"latency_ms"</span>: <span class="n">1240</span>,<br>
+            &nbsp;&nbsp;<span class="k">"chain_signature"</span>: <span class="s">"a3f8c2d1…"</span> <span class="c">// sha256(q + chunks + answer)</span><br>
+            }
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─── INTEGRATE ─── -->
+  <section id="integrate">
+    <div class="wrap">
+      <div class="section-tag">03 · Drop in</div>
+      <h2 class="section-head">Three lines. <em>No</em> chain rewrites.</h2>
+      <p class="section-lede" style="margin-bottom: 32px;">
+        The handler attaches via the standard callback channel on both frameworks. Your retriever, vector store, prompt, and LLM don't change. One callback, one row.
+      </p>
+
+      <div class="tabs" role="tablist">
+        <button class="tab" role="tab" aria-selected="true" data-panel="lc">LangChain</button>
+        <button class="tab" role="tab" aria-selected="false" data-panel="li">LlamaIndex</button>
+      </div>
+
+      <div class="codepanel" id="panel-lc" data-active>
+        <div class="codeblock">
+          <button class="copybtn" data-copy="code-lc">Copy</button>
+<pre id="code-lc"><span class="kw">from</span> langchain_openai <span class="kw">import</span> ChatOpenAI
+<span class="kw">from</span> langchain_core.prompts <span class="kw">import</span> ChatPromptTemplate
+<span class="kw">from</span> langchain_core.runnables <span class="kw">import</span> RunnablePassthrough, RunnableLambda
+<span class="kw">from</span> ragcompliance <span class="kw">import</span> <span class="cls">RAGComplianceHandler</span>, <span class="cls">RAGComplianceConfig</span>
+
+retriever = vectorstore.as_retriever(search_kwargs={<span class="str">"k"</span>: <span class="num">4</span>})
+prompt    = ChatPromptTemplate.from_template(<span class="str">"Context:\n{context}\n\nQ: {query}"</span>)
+llm       = ChatOpenAI(model=<span class="str">"gpt-4o-mini"</span>)
+
+chain = (
+    {<span class="str">"context"</span>: retriever | RunnableLambda(<span class="kw">lambda</span> d: <span class="str">"\n\n"</span>.join(c.page_content <span class="kw">for</span> c <span class="kw">in</span> d)),
+     <span class="str">"query"</span>: RunnablePassthrough()}
+    | prompt | llm
+)
+
+<span class="cm"># the only two new lines</span>
+handler = <span class="cls">RAGComplianceHandler</span>(config=<span class="cls">RAGComplianceConfig</span>.from_env(), session_id=<span class="str">"user-abc"</span>)
+answer  = chain.invoke(<span class="str">"Does §4.2 cover indemnification?"</span>, config={<span class="str">"callbacks"</span>: [handler]})</pre>
+        </div>
+      </div>
+
+      <div class="codepanel" id="panel-li">
+        <div class="codeblock">
+          <button class="copybtn" data-copy="code-li">Copy</button>
+<pre id="code-li"><span class="kw">from</span> llama_index.core <span class="kw">import</span> Settings
+<span class="kw">from</span> llama_index.core.callbacks <span class="kw">import</span> CallbackManager
+<span class="kw">from</span> ragcompliance <span class="kw">import</span> <span class="cls">RAGComplianceConfig</span>
+<span class="kw">from</span> ragcompliance.llamaindex_handler <span class="kw">import</span> <span class="cls">LlamaIndexRAGComplianceHandler</span>
+
+handler = <span class="cls">LlamaIndexRAGComplianceHandler</span>(
+    config=<span class="cls">RAGComplianceConfig</span>.from_env(),
+    session_id=<span class="str">"user-abc"</span>,
+)
+Settings.callback_manager = CallbackManager([handler])
+
+<span class="cm"># any query engine now runs under the audit handler</span>
+response = query_engine.query(<span class="str">"Does §4.2 cover indemnification?"</span>)</pre>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─── CAPABILITIES ─── -->
+  <section id="capabilities">
+    <div class="wrap">
+      <div class="section-tag">04 · Capabilities</div>
+      <h2 class="section-head">What ships in v0.1.3.<br>All production-hardened. All <em>tested.</em></h2>
+      <p class="section-lede" style="margin-bottom: 48px;">
+        Every feature below exists because a compliance team, an SRE on-call, or a pilot customer asked for it. No vapor. 126 tests green.
+      </p>
+
+      <div class="caps">
+        <article class="cap">
+          <div class="cap-num">01</div>
+          <h4>Drop-in callback handlers</h4>
+          <p>LangChain LCEL-safe with outermost-chain latching. LlamaIndex via CallbackManager on SYNTHESIZE events. No forks, no wrappers, no rewrites.</p>
+        </article>
+        <article class="cap">
+          <div class="cap-num">02</div>
+          <h4>SHA-256 chain signature</h4>
+          <p>Deterministic hash over <span class="kbd">query</span> + <span class="kbd">chunks</span> + <span class="kbd">answer</span>. Any post-hoc tamper on any field is detectable at verification.</p>
+        </article>
+        <article class="cap">
+          <div class="cap-num">03</div>
+          <h4>Supabase storage with RLS</h4>
+          <p>Bring your own Supabase. Row-level security per <span class="kbd">workspace_id</span>. One row per chain, one workspace per tenant.</p>
+        </article>
+        <article class="cap">
+          <div class="cap-num">04</div>
+          <h4>SOC 2 evidence generator</h4>
+          <p>One CLI produces a Markdown report mapped to CC6.1 / CC7.2 / CC8.1 / A1.1 / C1.1, with a signature-verified random sample an auditor can spot-check.</p>
+        </article>
+        <article class="cap">
+          <div class="cap-num">05</div>
+          <h4>OIDC SSO for the dashboard</h4>
+          <p>Four env vars and SSO turns on. Google Workspace, Okta, Auth0, Entra, Authentik — any standards OIDC. Domain allowlist optional.</p>
+        </article>
+        <article class="cap">
+          <div class="cap-num">06</div>
+          <h4>Stripe billing + quota</h4>
+          <p>Two-tier pricing wired in. Period-rollover via Stripe webhook with a self-healing fallback so a dropped webhook can't lock a workspace out.</p>
+        </article>
+        <article class="cap">
+          <div class="cap-num">07</div>
+          <h4>Async audit writes</h4>
+          <p>Fire-and-forget enqueue, bounded in-memory queue, daemon drainer. Per-chain overhead drops from ~1.2s to sub-millisecond.</p>
+        </article>
+        <article class="cap">
+          <div class="cap-num">08</div>
+          <h4>Slack anomaly alerts</h4>
+          <p>Four rules: zero chunks, low similarity, slow chain, chain errored. Env-tunable thresholds. Bounded alert queue so Slack outages can't back-pressure you.</p>
+        </article>
+        <article class="cap">
+          <div class="cap-num">09</div>
+          <h4>Live-mode readiness probe</h4>
+          <p><span class="kbd">/health/billing</span> flags the classic paste errors — <span class="kbd">prod_…</span> where <span class="kbd">price_…</span> belongs, missing webhook secret, localhost base URL in live mode — before a customer finds them on Saturday night.</p>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─── PRICING ─── -->
+  <section id="pricing">
+    <div class="wrap">
+      <div class="section-tag">05 · Pricing</div>
+      <h2 class="section-head">Flat tiers.<br>Query metering <em>baked in.</em></h2>
+      <p class="section-lede">
+        Every plan includes the full handler, dashboard, SOC 2 evidence export, async writes, and Slack alerts. Enterprise unlocks SSO, unlimited audit retention, and uncapped queries. Self-host the dashboard or let us operate it — your choice, same package.
+      </p>
+
+      <div class="pricing">
+        <div class="plan">
+          <h3>Team</h3>
+          <div class="price"><sup>$</sup>49</div>
+          <div class="price-sub">per month · billed via Stripe</div>
+          <ul>
+            <li>10,000 audited queries per month</li>
+            <li>LangChain + LlamaIndex handlers</li>
+            <li>CSV + JSON export</li>
+            <li>SOC 2 evidence generator</li>
+            <li>Slack anomaly alerts</li>
+            <li>Email support</li>
+          </ul>
+          <a class="plan-cta" href="docs.html#billing">
+            <span>Wire up billing</span>
+            <span>→</span>
+          </a>
+        </div>
+        <div class="plan featured">
+          <h3>Enterprise</h3>
+          <div class="price"><sup>$</sup>199</div>
+          <div class="price-sub">per month · billed via Stripe</div>
+          <ul>
+            <li>Unlimited audited queries</li>
+            <li>OIDC SSO (any IdP)</li>
+            <li>Custom audit retention</li>
+            <li>Priority review of SOC 2 drafts</li>
+            <li>Private deployment guidance</li>
+            <li>Direct engineering support</li>
+          </ul>
+          <a class="plan-cta" href="mailto:daksh.trehan@hotmail.com?subject=ragcompliance%20Enterprise">
+            <span>Talk to the author</span>
+            <span>→</span>
+          </a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─── ROADMAP ─── -->
+  <section id="roadmap">
+    <div class="wrap">
+      <div class="section-tag">06 · Shipped & shipping</div>
+      <h2 class="section-head">A tight scope, <em>shipped</em> in public.</h2>
+      <p class="section-lede">
+        Every checkmark below has a commit, a test suite, and a Render deploy behind it. Anything planned is marked as such, with no pretending.
+      </p>
+
+      <div class="roadmap">
+        <div><span class="marker">✓</span><span>LangChain callback handler (LCEL-safe, outermost-chain latching)</span><span class="tag">v0.1.0</span></div>
+        <div><span class="marker">✓</span><span>LlamaIndex callback handler (SYNTHESIZE-based)</span><span class="tag">v0.1.0</span></div>
+        <div><span class="marker">✓</span><span>Supabase persistence with row-level security</span><span class="tag">v0.1.0</span></div>
+        <div><span class="marker">✓</span><span>Dashboard exports: CSV / JSON with filters</span><span class="tag">v0.1.0</span></div>
+        <div><span class="marker">✓</span><span>Stripe billing + quota metering</span><span class="tag">v0.1.1</span></div>
+        <div><span class="marker">✓</span><span>Period-rollover with self-healing fallback</span><span class="tag">v0.1.1</span></div>
+        <div><span class="marker">✓</span><span>Fail-closed quota enforcement</span><span class="tag">v0.1.2</span></div>
+        <div><span class="marker">✓</span><span>Async audit writes (bounded queue, atexit drain)</span><span class="tag">v0.1.3</span></div>
+        <div><span class="marker">✓</span><span>Slack alerts for anomalous chains</span><span class="tag">v0.1.3</span></div>
+        <div><span class="marker">✓</span><span>SOC 2 evidence report generator</span><span class="tag">v0.1.3</span></div>
+        <div><span class="marker">✓</span><span>OIDC SSO on the dashboard</span><span class="tag">v0.1.3</span></div>
+        <div><span class="marker">✓</span><span>Stripe live-mode readiness probe</span><span class="tag">v0.1.3</span></div>
+        <div class="planned"><span class="marker">○</span><span>BYO object storage for source documents (S3, GCS, R2)</span><span class="tag">planned</span></div>
+        <div class="planned"><span class="marker">○</span><span>PII redaction policies (email, phone, custom regex) per workspace</span><span class="tag">planned</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─── CTA BAND ─── -->
+  <section class="cta-band">
+    <div class="wrap">
+      <h2>Ship a RAG system your <em>compliance team</em> will actually sign off on.</h2>
+      <div class="actions">
+        <div class="install" id="install2" role="button" tabindex="0" aria-label="Copy install command">
+          <span class="caret">$</span>
+          <span>pip install "ragcompliance[supabase]"</span>
+          <span class="copy" id="install2-copy" aria-hidden="true">⧉</span>
+        </div>
+        <a class="secondary" href="docs.html">
+          <span>Full documentation</span>
+          <span class="arrow">→</span>
+        </a>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <div class="cols">
+      <div>
+        <div class="brand">ragcompliance</div>
+        <p class="tag">Audit trail middleware for RAG pipelines in regulated industries. One callback, one signed row per chain, row-level security per workspace. Drop in, don't rewrite.</p>
+      </div>
+      <div>
+        <h5>Product</h5>
+        <ul>
+          <li><a href="#capture">What it captures</a></li>
+          <li><a href="#integrate">Integrate</a></li>
+          <li><a href="#capabilities">Capabilities</a></li>
+          <li><a href="#pricing">Pricing</a></li>
+        </ul>
+      </div>
+      <div>
+        <h5>Docs</h5>
+        <ul>
+          <li><a href="docs.html#install">Installation</a></li>
+          <li><a href="docs.html#langchain">LangChain</a></li>
+          <li><a href="docs.html#llamaindex">LlamaIndex</a></li>
+          <li><a href="docs.html#soc2">SOC 2 evidence</a></li>
+          <li><a href="docs.html#sso">SSO</a></li>
+          <li><a href="docs.html#reference">Reference</a></li>
+        </ul>
+      </div>
+      <div>
+        <h5>Links</h5>
+        <ul>
+          <li><a href="https://pypi.org/project/ragcompliance/" target="_blank" rel="noopener">PyPI</a></li>
+          <li><a href="https://github.com/dakshtrehan/ragcompliance" target="_blank" rel="noopener">GitHub</a></li>
+          <li><a href="https://github.com/dakshtrehan/ragcompliance/blob/main/LICENSE" target="_blank" rel="noopener">MIT License</a></li>
+          <li><a href="mailto:daksh.trehan@hotmail.com">Contact</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="bottom">
+      <div>© 2026 Daksh Trehan · MIT Licensed</div>
+      <div>Built in public. v0.1.3 · 126 tests green.</div>
+    </div>
+  </div>
+</footer>
+
+<script>
+  // copy-to-clipboard on install bar
+  function attachCopy(barId, indicatorId, cmd) {
+    const bar = document.getElementById(barId);
+    const ind = document.getElementById(indicatorId);
+    if (!bar) return;
+    const go = async () => {
+      try {
+        await navigator.clipboard.writeText(cmd);
+        if (ind) {
+          ind.textContent = "✓";
+          ind.classList.add("done");
+          setTimeout(() => { ind.textContent = "⧉"; ind.classList.remove("done"); }, 1600);
+        }
+      } catch (_) {}
+    };
+    bar.addEventListener("click", go);
+    bar.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(); }
+    });
+  }
+  attachCopy("install", "install-copy", 'pip install "ragcompliance[supabase]"');
+  attachCopy("install2", "install2-copy", 'pip install "ragcompliance[supabase]"');
+
+  // copy for code blocks
+  document.querySelectorAll(".codeblock .copybtn").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const id = btn.getAttribute("data-copy");
+      const el = document.getElementById(id);
+      if (!el) return;
+      try {
+        await navigator.clipboard.writeText(el.innerText);
+        const prev = btn.textContent;
+        btn.textContent = "Copied";
+        btn.classList.add("done");
+        setTimeout(() => { btn.textContent = prev; btn.classList.remove("done"); }, 1600);
+      } catch (_) {}
+    });
+  });
+
+  // tab switching
+  document.querySelectorAll(".tab").forEach((t) => {
+    t.addEventListener("click", () => {
+      const panelId = t.getAttribute("data-panel");
+      document.querySelectorAll(".tab").forEach((x) => x.setAttribute("aria-selected", "false"));
+      t.setAttribute("aria-selected", "true");
+      document.querySelectorAll(".codepanel").forEach((p) => p.removeAttribute("data-active"));
+      const panel = document.getElementById("panel-" + panelId);
+      if (panel) panel.setAttribute("data-active", "true");
+    });
+  });
+
+  // reveal on scroll
+  const io = new IntersectionObserver((entries) => {
+    entries.forEach((e) => { if (e.isIntersecting) { e.target.classList.add("in"); io.unobserve(e.target); } });
+  }, { rootMargin: "0px 0px -10% 0px" });
+  document.querySelectorAll(".section-head, .section-lede, .stat, .quote, .cap, .plan, .roadmap > div").forEach((el) => {
+    el.classList.add("reveal");
+    io.observe(el);
+  });
+</script>
+
+</body>
+</html>

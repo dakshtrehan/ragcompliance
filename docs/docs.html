@@ -1,0 +1,1097 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Documentation · ragcompliance</title>
+<meta name="description" content="Full documentation for ragcompliance: installation, LangChain and LlamaIndex integration, Supabase setup, dashboard, SSO, billing, SOC 2 evidence, async writes, and operational reference." />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght,SOFT,WONK@0,9..144,300..700,0..100,0..1;1,9..144,300..700,0..100,0..1&family=JetBrains+Mono:ital,wght@0,400..700;1,400..600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:        #F2EDE0;
+    --bg-2:      #EAE2CE;
+    --bg-3:      #DCD1B6;
+    --ink:       #181612;
+    --ink-2:     #3A352C;
+    --ink-dim:   #6A6354;
+    --seal:      #9C5A24;
+    --seal-2:    #C47A3A;
+    --seal-3:    #E8C88A;
+    --verify:    #3A6846;
+    --alert:     #B23A22;
+    --line:      #CABFA6;
+    --line-2:    #B9AD90;
+    --serif: "Fraunces", "EB Garamond", Georgia, "Times New Roman", serif;
+    --mono:  "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    --stroke: 1px solid var(--line);
+    --stroke-strong: 1px solid var(--line-2);
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font-family: var(--mono);
+    font-size: 14.5px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+  }
+  body::before {
+    content: ""; position: fixed; inset: 0;
+    background-image: radial-gradient(rgba(24,22,18,0.04) 0.5px, transparent 0.5px);
+    background-size: 3px 3px;
+    opacity: .35; pointer-events: none; z-index: 0;
+  }
+
+  a { color: inherit; text-decoration-color: var(--seal); text-underline-offset: 3px; }
+  a:hover { color: var(--seal); }
+  code {
+    font-family: var(--mono);
+    background: var(--bg-2);
+    padding: 1px 6px;
+    border-radius: 2px;
+    font-size: 0.92em;
+    color: var(--ink);
+  }
+  ::selection { background: var(--seal-3); color: var(--ink); }
+
+  /* ─── top nav ─── */
+  nav.top {
+    display: grid; grid-template-columns: auto 1fr auto;
+    align-items: center; gap: 24px;
+    padding: 20px 32px;
+    border-bottom: var(--stroke);
+    background: color-mix(in oklab, var(--bg) 92%, transparent);
+    position: sticky; top: 0; z-index: 30;
+    backdrop-filter: blur(8px);
+  }
+  nav.top .mark {
+    font-family: var(--mono); font-size: 14px; font-weight: 600;
+    letter-spacing: -0.01em;
+    display: inline-flex; align-items: center; gap: 10px;
+    text-decoration: none;
+  }
+  nav.top .mark .seal {
+    width: 22px; height: 22px; border-radius: 50%;
+    background: radial-gradient(circle at 30% 30%, var(--seal-2), var(--seal));
+    box-shadow: inset 0 0 0 1px rgba(24,22,18,.25);
+    position: relative;
+  }
+  nav.top .mark .seal::after {
+    content: "✓"; position: absolute; inset: 0;
+    display: grid; place-items: center;
+    color: var(--bg); font-family: var(--serif); font-style: italic; font-size: 13px;
+  }
+  nav.top .ver {
+    font-size: 11px; color: var(--ink-dim);
+    padding: 3px 7px; border: var(--stroke); border-radius: 2px;
+    margin-left: 8px;
+  }
+  nav.top ul {
+    list-style: none; padding: 0; margin: 0;
+    display: flex; gap: 22px; justify-self: center;
+    font-size: 13px;
+  }
+  nav.top ul a { text-decoration: none; color: var(--ink-2); }
+  nav.top ul a.on, nav.top ul a:hover { color: var(--seal); }
+  nav.top .cta {
+    display: inline-flex; align-items: center; gap: 8px;
+    font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase;
+    padding: 9px 14px;
+    background: var(--ink); color: var(--bg);
+    border: 1px solid var(--ink);
+    text-decoration: none;
+  }
+  nav.top .cta:hover { background: var(--seal); border-color: var(--seal); }
+  @media (max-width: 760px) { nav.top ul { display: none; } nav.top { grid-template-columns: auto auto; } }
+
+  /* ─── layout ─── */
+  .shell {
+    display: grid;
+    grid-template-columns: 260px 1fr;
+    gap: 0;
+    max-width: 1320px;
+    margin: 0 auto;
+  }
+  @media (max-width: 900px) {
+    .shell { grid-template-columns: 1fr; }
+  }
+
+  /* ─── sidebar ─── */
+  aside.side {
+    border-right: var(--stroke);
+    padding: 32px 24px 48px 32px;
+    position: sticky;
+    top: 66px;
+    align-self: start;
+    height: calc(100vh - 66px);
+    overflow-y: auto;
+    z-index: 1;
+  }
+  @media (max-width: 900px) {
+    aside.side { position: static; height: auto; border-right: 0; border-bottom: var(--stroke); padding: 20px 24px; }
+  }
+  aside.side .group {
+    margin-bottom: 24px;
+  }
+  aside.side .group h6 {
+    font-family: var(--mono); font-size: 10px;
+    letter-spacing: 0.2em; text-transform: uppercase;
+    color: var(--ink);
+    margin: 0 0 10px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--line);
+  }
+  aside.side ul {
+    list-style: none; padding: 0; margin: 0;
+    display: grid; gap: 4px;
+  }
+  aside.side li a {
+    display: block;
+    padding: 5px 10px;
+    font-family: var(--mono); font-size: 13px;
+    color: var(--ink-2);
+    text-decoration: none;
+    border-left: 2px solid transparent;
+    transition: border-color .15s, color .15s, background .15s;
+  }
+  aside.side li a:hover {
+    color: var(--seal);
+    background: var(--bg-2);
+  }
+  aside.side li a.active {
+    color: var(--seal);
+    border-left-color: var(--seal);
+    background: var(--bg-2);
+  }
+
+  /* ─── article ─── */
+  article.doc {
+    padding: 56px 56px 120px;
+    max-width: 900px;
+  }
+  @media (max-width: 900px) { article.doc { padding: 40px 28px 96px; } }
+
+  article.doc h1 {
+    font-family: var(--serif); font-weight: 350;
+    font-size: clamp(40px, 5vw, 64px);
+    line-height: 1.04;
+    letter-spacing: -0.025em;
+    margin: 0 0 16px;
+    font-variation-settings: "opsz" 144, "SOFT" 30, "WONK" 1;
+  }
+  article.doc h1 em { font-style: italic; color: var(--seal); font-variation-settings: "opsz" 144, "SOFT" 80, "WONK" 1; }
+  article.doc .lede {
+    font-family: var(--mono);
+    font-size: 15px;
+    line-height: 1.7;
+    color: var(--ink-2);
+    max-width: 68ch;
+    margin-bottom: 40px;
+    padding-bottom: 32px;
+    border-bottom: var(--stroke);
+  }
+
+  article.doc h2 {
+    font-family: var(--serif); font-weight: 400; font-style: italic;
+    font-size: clamp(28px, 3.4vw, 40px);
+    letter-spacing: -0.015em;
+    margin: 64px 0 12px;
+    color: var(--ink);
+    font-variation-settings: "opsz" 144, "SOFT" 60, "WONK" 1;
+    scroll-margin-top: 80px;
+  }
+  article.doc h2::before {
+    content: counter(section, decimal-leading-zero);
+    counter-increment: section;
+    font-family: var(--mono); font-style: normal;
+    color: var(--seal);
+    font-size: 13px;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    display: block;
+    margin-bottom: 8px;
+    font-weight: 400;
+  }
+  article.doc { counter-reset: section; }
+  article.doc h3 {
+    font-family: var(--serif); font-weight: 500;
+    font-size: 22px; letter-spacing: -0.01em;
+    margin: 44px 0 10px;
+    color: var(--ink);
+    scroll-margin-top: 80px;
+  }
+  article.doc h4 {
+    font-family: var(--mono); font-weight: 600; font-size: 13px;
+    letter-spacing: 0.14em; text-transform: uppercase;
+    color: var(--seal);
+    margin: 32px 0 8px;
+  }
+  article.doc p {
+    font-family: var(--mono);
+    font-size: 14.5px; line-height: 1.75;
+    color: var(--ink-2);
+    max-width: 72ch;
+    margin: 0 0 18px;
+  }
+  article.doc p strong { color: var(--ink); font-weight: 600; }
+  article.doc ul, article.doc ol {
+    max-width: 72ch;
+    padding-left: 0;
+    margin: 0 0 18px;
+    list-style: none;
+  }
+  article.doc ul li, article.doc ol li {
+    position: relative;
+    padding-left: 26px;
+    margin-bottom: 8px;
+    font-size: 14.5px; line-height: 1.7;
+    color: var(--ink-2);
+  }
+  article.doc ul li::before {
+    content: "›"; position: absolute; left: 6px; top: 0;
+    color: var(--seal);
+    font-family: var(--serif); font-size: 17px; font-weight: 500;
+  }
+  article.doc ol { counter-reset: olcount; }
+  article.doc ol li { counter-increment: olcount; }
+  article.doc ol li::before {
+    content: counter(olcount, decimal-leading-zero);
+    position: absolute; left: 0; top: 1px;
+    color: var(--seal);
+    font-family: var(--mono); font-size: 11px; letter-spacing: 0.08em;
+  }
+
+  /* code blocks */
+  article.doc pre {
+    background: var(--ink);
+    color: #EDE4D0;
+    padding: 22px 24px;
+    position: relative;
+    font-family: var(--mono);
+    font-size: 13px;
+    line-height: 1.7;
+    overflow-x: auto;
+    border: 1px solid var(--ink);
+    border-radius: 2px;
+    margin: 0 0 18px;
+    box-shadow: 0 12px 28px -16px rgba(24,22,18,.22);
+  }
+  article.doc pre::before {
+    content: attr(data-lang);
+    position: absolute; top: 10px; right: 12px;
+    font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase;
+    color: var(--seal-3);
+    opacity: .5;
+  }
+  article.doc pre code { background: transparent; padding: 0; color: inherit; font-size: 13px; }
+  .kw { color: #E8C88A; }
+  .fn { color: #E8AC71; }
+  .str { color: #A8C199; }
+  .num { color: #D4A244; }
+  .cm { color: #7A7164; font-style: italic; }
+  .cls { color: #E8C88A; }
+  .var { color: #EDE4D0; }
+  .bash-p { color: #C47A3A; }
+  .bash-f { color: #A8C199; }
+
+  /* tables */
+  article.doc table {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: var(--mono); font-size: 13px;
+    margin: 8px 0 24px;
+    border: var(--stroke-strong);
+  }
+  article.doc th, article.doc td {
+    text-align: left;
+    padding: 10px 14px;
+    border-bottom: var(--stroke);
+    vertical-align: top;
+  }
+  article.doc thead th {
+    background: var(--bg-2);
+    font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase;
+    color: var(--ink);
+    font-weight: 600;
+  }
+  article.doc tbody tr:last-child td { border-bottom: none; }
+  article.doc td code { font-size: 12px; }
+
+  /* callout */
+  .callout {
+    border-left: 3px solid var(--seal);
+    background: var(--bg-2);
+    padding: 18px 22px;
+    margin: 24px 0;
+    font-family: var(--mono); font-size: 13.5px;
+    line-height: 1.7;
+    color: var(--ink-2);
+  }
+  .callout.note { border-left-color: var(--seal); }
+  .callout.warn { border-left-color: var(--alert); }
+  .callout.ok   { border-left-color: var(--verify); }
+  .callout strong {
+    display: inline-block;
+    font-family: var(--mono); font-weight: 600;
+    font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase;
+    color: var(--seal);
+    margin-right: 10px;
+  }
+  .callout.warn strong { color: var(--alert); }
+  .callout.ok strong { color: var(--verify); }
+
+  /* hero of docs */
+  .doc-hero {
+    padding: 56px 56px 0;
+    max-width: 900px;
+  }
+  @media (max-width: 900px) { .doc-hero { padding: 40px 28px 0; } }
+  .doc-hero .tag {
+    font-family: var(--mono); font-size: 11px;
+    letter-spacing: 0.2em; text-transform: uppercase;
+    color: var(--seal);
+    margin-bottom: 18px;
+  }
+
+  /* inline keyboard-ish tokens */
+  .kbd {
+    display: inline-block;
+    font-family: var(--mono); font-size: 11.5px;
+    padding: 1px 6px;
+    background: var(--bg-3); color: var(--ink);
+    border-radius: 2px;
+  }
+
+  /* right breadcrumb / page-meta */
+  .page-meta {
+    display: flex; align-items: center; gap: 16px;
+    font-family: var(--mono); font-size: 11px;
+    letter-spacing: 0.1em; text-transform: uppercase;
+    color: var(--ink-dim);
+    margin-top: 48px;
+    padding-top: 24px;
+    border-top: var(--stroke);
+  }
+  .page-meta .sep { color: var(--seal); }
+
+  /* in-code copy */
+  .copybtn {
+    position: absolute; top: 10px; right: 10px;
+    background: transparent;
+    border: 1px solid rgba(242,237,224,0.2);
+    color: #EDE4D0;
+    font-family: var(--mono); font-size: 10px;
+    letter-spacing: 0.12em; text-transform: uppercase;
+    padding: 4px 9px;
+    cursor: pointer;
+  }
+  pre[data-lang] .copybtn { top: 30px; }
+  .copybtn:hover { border-color: var(--seal-2); color: var(--seal-2); }
+  .copybtn.done { border-color: var(--verify); color: var(--verify); }
+
+  :focus-visible { outline: 2px solid var(--seal); outline-offset: 3px; }
+</style>
+</head>
+<body>
+
+<nav class="top">
+  <a href="index.html" class="mark">
+    <span class="seal" aria-hidden="true"></span>
+    <span>ragcompliance</span>
+    <span class="ver">v0.1.3</span>
+  </a>
+  <ul>
+    <li><a href="index.html">Home</a></li>
+    <li><a href="docs.html" class="on">Docs</a></li>
+    <li><a href="index.html#pricing">Pricing</a></li>
+    <li><a href="https://github.com/dakshtrehan/ragcompliance" target="_blank" rel="noopener">GitHub</a></li>
+  </ul>
+  <a class="cta" href="https://pypi.org/project/ragcompliance/" target="_blank" rel="noopener">
+    <span>PyPI</span>
+    <svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M1 9L9 1M9 1H2M9 1v7" stroke="currentColor" stroke-width="1.5"/></svg>
+  </a>
+</nav>
+
+<div class="shell">
+
+<aside class="side">
+  <div class="group">
+    <h6>Get started</h6>
+    <ul>
+      <li><a href="#overview">Overview</a></li>
+      <li><a href="#install">Installation</a></li>
+      <li><a href="#supabase">Supabase setup</a></li>
+      <li><a href="#env">Environment variables</a></li>
+      <li><a href="#first-run">Your first audited chain</a></li>
+    </ul>
+  </div>
+  <div class="group">
+    <h6>Integrations</h6>
+    <ul>
+      <li><a href="#langchain">LangChain handler</a></li>
+      <li><a href="#llamaindex">LlamaIndex handler</a></li>
+      <li><a href="#record">Audit record schema</a></li>
+      <li><a href="#signature">Signature verification</a></li>
+    </ul>
+  </div>
+  <div class="group">
+    <h6>Dashboard</h6>
+    <ul>
+      <li><a href="#dashboard">Running the dashboard</a></li>
+      <li><a href="#endpoints">HTTP endpoints</a></li>
+      <li><a href="#sso">SSO (OIDC)</a></li>
+    </ul>
+  </div>
+  <div class="group">
+    <h6>Billing & evidence</h6>
+    <ul>
+      <li><a href="#billing">Plans & checkout</a></li>
+      <li><a href="#quota">Quota enforcement</a></li>
+      <li><a href="#rollover">Period rollover</a></li>
+      <li><a href="#going-live">Going live (Stripe)</a></li>
+      <li><a href="#soc2">SOC 2 evidence</a></li>
+    </ul>
+  </div>
+  <div class="group">
+    <h6>Operations</h6>
+    <ul>
+      <li><a href="#async">Async audit writes</a></li>
+      <li><a href="#slack">Slack alerts</a></li>
+      <li><a href="#deploy">Deployment</a></li>
+    </ul>
+  </div>
+  <div class="group">
+    <h6>Reference</h6>
+    <ul>
+      <li><a href="#reference">API reference</a></li>
+      <li><a href="#envref">Env var reference</a></li>
+      <li><a href="#license">License & contact</a></li>
+    </ul>
+  </div>
+</aside>
+
+<div>
+
+<div class="doc-hero">
+  <div class="tag">Documentation · v0.1.3</div>
+  <h1>Everything you need to run <em>ragcompliance</em> in production.</h1>
+</div>
+
+<article class="doc">
+  <p class="lede">
+    ragcompliance is drop-in middleware for LangChain and LlamaIndex that logs, signs, and stores every retrieval-augmented generation chain. This documentation covers installation, framework integration, the audit record schema, the dashboard, SSO, billing, SOC 2 evidence export, operational tuning, and a full API reference. Every code snippet on this page is copy-pasteable against <code>ragcompliance &gt;= 0.1.3</code>.
+  </p>
+
+  <!-- ─── overview ─── -->
+  <h2 id="overview">Overview</h2>
+  <p>
+    ragcompliance sits between your chain and your observability stack. You keep your retriever, your vector store, your prompt, and your LLM exactly as they are. You pass one callback through the standard callback channel and, per invocation, one signed row lands in your Supabase.
+  </p>
+  <p>
+    Every row contains: the query verbatim, every retrieved chunk with source URL, chunk ID and similarity score, the LLM answer verbatim, the model name, end-to-end latency, the workspace ID, a session ID you control, a timestamp, and a SHA-256 <strong>chain signature</strong> computed over <code>query + chunks + answer</code>. If any of those three fields is mutated after-the-fact, the signature no longer validates at verification time.
+  </p>
+  <p>
+    That single row is what compliance teams need to sign off on a RAG system: "which document was cited, what did the model say, and prove it hasn't been modified since." Row-level security in Supabase means the same physical table can hold audit logs for many tenants without cross-contamination.
+  </p>
+
+  <div class="callout note"><strong>note</strong>This is middleware, not a vector database. Bring your own retriever (FAISS, Chroma, Pinecone, pgvector, Weaviate, any <code>BaseRetriever</code>). ragcompliance only cares about what your retriever returned and what the LLM answered.</div>
+
+  <!-- ─── install ─── -->
+  <h2 id="install">Installation</h2>
+  <p>The base install logs to stdout — good for local dev, not good for production. For anything real, install with the Supabase extra so the handler writes to a real audit table.</p>
+
+<pre data-lang="bash"><button class="copybtn" data-txt='pip install "ragcompliance[supabase]"'>Copy</button><code><span class="bash-p">$</span> pip install <span class="str">"ragcompliance[supabase]"</span></code></pre>
+
+  <p>Additional extras:</p>
+
+<pre data-lang="bash"><button class="copybtn" data-txt='pip install "ragcompliance[supabase,dashboard]"
+pip install "ragcompliance[supabase,llamaindex]"
+pip install "ragcompliance[dashboard,sso]"'>Copy</button><code><span class="cm"># + FastAPI dashboard</span>
+<span class="bash-p">$</span> pip install <span class="str">"ragcompliance[supabase,dashboard]"</span>
+
+<span class="cm"># + LlamaIndex handler</span>
+<span class="bash-p">$</span> pip install <span class="str">"ragcompliance[supabase,llamaindex]"</span>
+
+<span class="cm"># + OIDC single sign-on</span>
+<span class="bash-p">$</span> pip install <span class="str">"ragcompliance[dashboard,sso]"</span></code></pre>
+
+  <p><strong>Requirements.</strong> Python 3.11 or newer. <code>langchain-core &gt;= 0.2</code> (covers LangChain 0.2+ and all LCEL chains). <code>llama-index-core &gt;= 0.10</code>.</p>
+
+  <!-- ─── supabase ─── -->
+  <h2 id="supabase">Supabase setup</h2>
+  <p>Create a free Supabase project at <a href="https://supabase.com" target="_blank" rel="noopener">supabase.com</a>. You need two SQL scripts applied once in the SQL editor — one creates the audit log table with row-level security, the other adds the billing + usage tables used by the dashboard.</p>
+
+  <ol>
+    <li>Open the SQL editor in your Supabase project.</li>
+    <li>Paste and run <code>supabase_schema.sql</code> from the repo (audit log table, indexes, RLS policies).</li>
+    <li>Paste and run <code>supabase_migration_billing.sql</code> (subscriptions, query counters, period-end RPC).</li>
+    <li>Copy the <code>service_role</code> key from your project's API settings. <strong>Do not</strong> use the <code>anon</code> key — RLS will block the handler from writing.</li>
+  </ol>
+
+  <div class="callout warn"><strong>security</strong>The service role key bypasses RLS on your Supabase project. Store it in a secret manager, never commit it, never expose it to browser code. The handler only needs it server-side.</div>
+
+  <!-- ─── env ─── -->
+  <h2 id="env">Environment variables</h2>
+  <p>Copy <code>.env.example</code> from the repo and fill in your values. The handler reads these via <code>RAGComplianceConfig.from_env()</code>.</p>
+
+<pre data-lang="env"><button class="copybtn" data-txt='RAGCOMPLIANCE_SUPABASE_URL=https://your-project.supabase.co
+RAGCOMPLIANCE_SUPABASE_KEY=your-service-role-key
+RAGCOMPLIANCE_WORKSPACE_ID=your-workspace-id
+RAGCOMPLIANCE_DEV_MODE=false
+RAGCOMPLIANCE_ENFORCE_QUOTA=false
+RAGCOMPLIANCE_ASYNC_WRITES=true
+RAGCOMPLIANCE_ASYNC_MAX_QUEUE=1000'>Copy</button><code>RAGCOMPLIANCE_SUPABASE_URL=https://your-project.supabase.co
+RAGCOMPLIANCE_SUPABASE_KEY=your-service-role-key
+RAGCOMPLIANCE_WORKSPACE_ID=your-workspace-id   <span class="cm"># one per tenant</span>
+RAGCOMPLIANCE_DEV_MODE=false                    <span class="cm"># true = stdout, false = Supabase</span>
+RAGCOMPLIANCE_ENFORCE_QUOTA=false               <span class="cm"># true = RuntimeError on overage</span>
+RAGCOMPLIANCE_ASYNC_WRITES=true                 <span class="cm"># fire-and-forget (default)</span>
+RAGCOMPLIANCE_ASYNC_MAX_QUEUE=1000              <span class="cm"># bounded buffer</span></code></pre>
+
+  <p><strong><code>workspace_id</code></strong> is how ragcompliance isolates audit logs across tenants. One workspace per customer in a multi-tenant SaaS. One per app for internal use. Row-level security keeps rows from leaking across workspaces even if an application bug asks for the wrong one.</p>
+
+  <!-- ─── first run ─── -->
+  <h2 id="first-run">Your first audited chain</h2>
+  <p>Once Supabase is set up and environment variables are loaded, any chain you already have will audit itself the moment you attach the handler. Here's a minimal standalone example:</p>
+
+<pre data-lang="python"><button class="copybtn" data-txt='from langchain_openai import ChatOpenAI
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.runnables import RunnablePassthrough, RunnableLambda
+from ragcompliance import RAGComplianceHandler, RAGComplianceConfig
+
+retriever = vectorstore.as_retriever(search_kwargs={"k": 4})
+prompt    = ChatPromptTemplate.from_template("Context:\n{context}\n\nQ: {query}")
+llm       = ChatOpenAI(model="gpt-4o-mini")
+
+chain = (
+    {"context": retriever | RunnableLambda(lambda d: "\n\n".join(c.page_content for c in d)),
+     "query": RunnablePassthrough()}
+    | prompt | llm
+)
+
+handler = RAGComplianceHandler(config=RAGComplianceConfig.from_env(), session_id="user-abc")
+answer  = chain.invoke("Does section 4.2 cover indemnification?", config={"callbacks": [handler]})'>Copy</button><code><span class="kw">from</span> langchain_openai <span class="kw">import</span> ChatOpenAI
+<span class="kw">from</span> langchain_core.prompts <span class="kw">import</span> ChatPromptTemplate
+<span class="kw">from</span> langchain_core.runnables <span class="kw">import</span> RunnablePassthrough, RunnableLambda
+<span class="kw">from</span> ragcompliance <span class="kw">import</span> <span class="cls">RAGComplianceHandler</span>, <span class="cls">RAGComplianceConfig</span>
+
+retriever = vectorstore.as_retriever(search_kwargs={<span class="str">"k"</span>: <span class="num">4</span>})
+prompt    = ChatPromptTemplate.from_template(<span class="str">"Context:\n{context}\n\nQ: {query}"</span>)
+llm       = ChatOpenAI(model=<span class="str">"gpt-4o-mini"</span>)
+
+chain = (
+    {<span class="str">"context"</span>: retriever | RunnableLambda(<span class="kw">lambda</span> d: <span class="str">"\n\n"</span>.join(c.page_content <span class="kw">for</span> c <span class="kw">in</span> d)),
+     <span class="str">"query"</span>: RunnablePassthrough()}
+    | prompt | llm
+)
+
+handler = <span class="cls">RAGComplianceHandler</span>(config=<span class="cls">RAGComplianceConfig</span>.from_env(), session_id=<span class="str">"user-abc"</span>)
+answer  = chain.invoke(<span class="str">"Does section 4.2 cover indemnification?"</span>, config={<span class="str">"callbacks"</span>: [handler]})</code></pre>
+
+  <p>After one invocation you'll see one row in <code>rag_audit_logs</code>. Query it from the SQL editor, the dashboard UI, or the <code>/api/logs</code> endpoint.</p>
+
+  <!-- ─── LangChain ─── -->
+  <h2 id="langchain">LangChain handler</h2>
+  <p>The LangChain handler is LCEL-safe and latches onto the outermost chain by default, which is what you want for 95% of setups. It captures:</p>
+
+  <ul>
+    <li>the first user-facing query that entered the chain</li>
+    <li>every document the retriever yielded (<code>source_url</code> from <code>metadata["source"]</code>, <code>chunk_id</code> from <code>metadata["chunk_id"]</code>, and <code>similarity_score</code> if the retriever exposes it)</li>
+    <li>the LLM's final string output</li>
+    <li>the model name reported by the LLM integration</li>
+    <li>end-to-end latency, rounded to the millisecond</li>
+  </ul>
+
+  <h3 id="lc-session">Session IDs</h3>
+  <p>The <code>session_id</code> argument is free-form. Use it to correlate a single user's conversation across many chain invocations. A common pattern is one session per chat thread, logged in by your application.</p>
+
+<pre data-lang="python"><button class="copybtn" data-txt='handler = RAGComplianceHandler(
+    config=RAGComplianceConfig.from_env(),
+    session_id=request.session["chat_id"],
+)'>Copy</button><code>handler = <span class="cls">RAGComplianceHandler</span>(
+    config=<span class="cls">RAGComplianceConfig</span>.from_env(),
+    session_id=request.session[<span class="str">"chat_id"</span>],
+)</code></pre>
+
+  <h3 id="lc-metadata">Passing source metadata</h3>
+  <p>For source URLs to land in the audit record, your <code>Document</code> objects need <code>metadata["source"]</code> set (and ideally <code>metadata["chunk_id"]</code>). Most loaders do this already. A manual retriever looks like:</p>
+
+<pre data-lang="python"><button class="copybtn" data-txt='from langchain_core.documents import Document
+
+docs = [
+    Document(
+        page_content="Section 4.2 obligates Party A to indemnify…",
+        metadata={"source": "s3://contracts/acme-msa-v3.pdf", "chunk_id": "chunk-042"},
+    ),
+    …
+]'>Copy</button><code><span class="kw">from</span> langchain_core.documents <span class="kw">import</span> Document
+
+docs = [
+    Document(
+        page_content=<span class="str">"Section 4.2 obligates Party A to indemnify…"</span>,
+        metadata={<span class="str">"source"</span>: <span class="str">"s3://contracts/acme-msa-v3.pdf"</span>, <span class="str">"chunk_id"</span>: <span class="str">"chunk-042"</span>},
+    ),
+    …
+]</code></pre>
+
+  <!-- ─── LlamaIndex ─── -->
+  <h2 id="llamaindex">LlamaIndex handler</h2>
+  <p>The LlamaIndex handler latches onto the <code>SYNTHESIZE</code> event so it captures the final synthesized answer alongside the retrieved nodes. It's set globally via <code>CallbackManager</code> on <code>Settings</code>, so every query engine you subsequently construct inherits it.</p>
+
+<pre data-lang="python"><button class="copybtn" data-txt='from llama_index.core import Settings
+from llama_index.core.callbacks import CallbackManager
+from ragcompliance import RAGComplianceConfig
+from ragcompliance.llamaindex_handler import LlamaIndexRAGComplianceHandler
+
+handler = LlamaIndexRAGComplianceHandler(
+    config=RAGComplianceConfig.from_env(),
+    session_id="user-abc",
+)
+Settings.callback_manager = CallbackManager([handler])
+
+response = query_engine.query("Does section 4.2 cover indemnification?")'>Copy</button><code><span class="kw">from</span> llama_index.core <span class="kw">import</span> Settings
+<span class="kw">from</span> llama_index.core.callbacks <span class="kw">import</span> CallbackManager
+<span class="kw">from</span> ragcompliance <span class="kw">import</span> <span class="cls">RAGComplianceConfig</span>
+<span class="kw">from</span> ragcompliance.llamaindex_handler <span class="kw">import</span> <span class="cls">LlamaIndexRAGComplianceHandler</span>
+
+handler = <span class="cls">LlamaIndexRAGComplianceHandler</span>(
+    config=<span class="cls">RAGComplianceConfig</span>.from_env(),
+    session_id=<span class="str">"user-abc"</span>,
+)
+Settings.callback_manager = CallbackManager([handler])
+
+response = query_engine.query(<span class="str">"Does section 4.2 cover indemnification?"</span>)</code></pre>
+
+  <!-- ─── record schema ─── -->
+  <h2 id="record">Audit record schema</h2>
+  <p>Every invocation writes one row into <code>rag_audit_logs</code>:</p>
+
+<pre data-lang="json"><code>{
+  <span class="str">"id"</span>: <span class="str">"c4e91…"</span>,                          <span class="cm">// uuid</span>
+  <span class="str">"session_id"</span>: <span class="str">"user-abc"</span>,
+  <span class="str">"workspace_id"</span>: <span class="str">"acme-prod"</span>,
+  <span class="str">"query"</span>: <span class="str">"Does section 4.2 cover indemnification?"</span>,
+  <span class="str">"retrieved_chunks"</span>: [
+    {
+      <span class="str">"content"</span>: <span class="str">"Section 4.2 obligates Party A…"</span>,
+      <span class="str">"source_url"</span>: <span class="str">"s3://contracts/acme-msa-v3.pdf"</span>,
+      <span class="str">"chunk_id"</span>: <span class="str">"chunk-042"</span>,
+      <span class="str">"similarity_score"</span>: <span class="num">0.94</span>
+    }
+  ],
+  <span class="str">"llm_answer"</span>: <span class="str">"Section 4.2 covers indemnification obligations…"</span>,
+  <span class="str">"model_name"</span>: <span class="str">"gpt-4o-mini"</span>,
+  <span class="str">"chain_signature"</span>: <span class="str">"a3f8c2d1…"</span>,
+  <span class="str">"timestamp"</span>: <span class="str">"2026-04-10T06:00:00Z"</span>,
+  <span class="str">"latency_ms"</span>: <span class="num">1240</span>
+}</code></pre>
+
+  <p>Every field is nullable except <code>workspace_id</code>, <code>query</code>, <code>timestamp</code>, and <code>chain_signature</code>. A chain that never returned a result (retriever failed, LLM errored) still writes a row with the error captured downstream by Slack alerts.</p>
+
+  <!-- ─── signature ─── -->
+  <h2 id="signature">Signature verification</h2>
+  <p>The signature is computed deterministically over the normalized JSON of the three fields that matter for accountability:</p>
+
+<pre data-lang="python"><code><span class="kw">import</span> hashlib, json
+
+payload = {
+    <span class="str">"query"</span>: record[<span class="str">"query"</span>],
+    <span class="str">"chunks"</span>: [
+        {<span class="str">"content"</span>: c[<span class="str">"content"</span>], <span class="str">"source_url"</span>: c[<span class="str">"source_url"</span>], <span class="str">"chunk_id"</span>: c[<span class="str">"chunk_id"</span>]}
+        <span class="kw">for</span> c <span class="kw">in</span> record[<span class="str">"retrieved_chunks"</span>] <span class="kw">or</span> []
+    ],
+    <span class="str">"answer"</span>: record[<span class="str">"llm_answer"</span>],
+}
+expected = hashlib.sha256(
+    json.dumps(payload, sort_keys=<span class="kw">True</span>, default=<span class="kw">str</span>).encode()
+).hexdigest()
+
+<span class="kw">assert</span> expected == record[<span class="str">"chain_signature"</span>], <span class="str">"record was tampered with after write"</span></code></pre>
+
+  <p>This algorithm is stable across language runtimes because <code>sort_keys=True</code> canonicalizes the JSON. An auditor with SQL access can re-run the check without a Python dependency using their own SHA-256 implementation over the same canonical payload.</p>
+
+  <!-- ─── dashboard ─── -->
+  <h2 id="dashboard">Running the dashboard</h2>
+  <p>The dashboard is a single-file FastAPI app. Run it locally with:</p>
+
+<pre data-lang="bash"><button class="copybtn" data-txt='pip install "ragcompliance[dashboard]"
+uvicorn ragcompliance.app:app --reload'>Copy</button><code><span class="bash-p">$</span> pip install <span class="str">"ragcompliance[dashboard]"</span>
+<span class="bash-p">$</span> uvicorn ragcompliance.app:app --reload</code></pre>
+
+  <p>It ships with an HTML dashboard at <code>/</code> showing stats cards, recent logs, and export buttons, plus a JSON + CSV API under <code>/api/…</code>.</p>
+
+  <!-- ─── endpoints ─── -->
+  <h2 id="endpoints">HTTP endpoints</h2>
+  <table>
+    <thead><tr><th>Method</th><th>Path</th><th>Purpose</th></tr></thead>
+    <tbody>
+      <tr><td>GET</td><td><code>/</code></td><td>HTML dashboard: stat cards, recent logs, export buttons</td></tr>
+      <tr><td>GET</td><td><code>/health</code></td><td>Liveness probe. Always 200 OK.</td></tr>
+      <tr><td>GET</td><td><code>/health/billing</code></td><td>Stripe live-mode readiness probe. 200 when configured, 503 + issues list otherwise.</td></tr>
+      <tr><td>GET</td><td><code>/api/logs</code></td><td>Paginated audit records. Supports <code>workspace_id</code>, <code>session_id</code>, <code>start</code>, <code>end</code>, <code>limit</code>, <code>offset</code>.</td></tr>
+      <tr><td>GET</td><td><code>/api/logs/detail/{id}</code></td><td>Single audit record.</td></tr>
+      <tr><td>GET</td><td><code>/api/logs/export.csv</code></td><td>CSV export with filter query params.</td></tr>
+      <tr><td>GET</td><td><code>/api/logs/export.json</code></td><td>JSON file export with filter query params.</td></tr>
+      <tr><td>GET</td><td><code>/api/summary</code></td><td>Aggregate stats: total queries, unique sessions, avg latency, models.</td></tr>
+      <tr><td>GET</td><td><code>/api/plans</code></td><td>Configured billing plans + their Stripe price IDs.</td></tr>
+      <tr><td>POST</td><td><code>/billing/checkout</code></td><td>Start a Stripe Checkout session. Body: <code>{workspace_id, tier}</code>.</td></tr>
+      <tr><td>POST</td><td><code>/stripe/webhook</code></td><td>Stripe event receiver. Verifies signature.</td></tr>
+      <tr><td>GET</td><td><code>/billing/subscription/{workspace_id}</code></td><td>Current subscription + usage for one workspace.</td></tr>
+      <tr><td>GET</td><td><code>/login</code></td><td>Redirects to the configured OIDC provider (when SSO is enabled).</td></tr>
+      <tr><td>GET</td><td><code>/auth/callback</code></td><td>OIDC callback. Validates email domain, seeds session.</td></tr>
+      <tr><td>GET</td><td><code>/logout</code></td><td>Clears the session cookie.</td></tr>
+    </tbody>
+  </table>
+
+  <!-- ─── SSO ─── -->
+  <h2 id="sso">SSO (OIDC)</h2>
+  <p>The dashboard ships open by default so local dev stays frictionless. Set four environment variables and SSO turns on via standards OIDC discovery — Google Workspace, Okta, Auth0, Microsoft Entra, Authentik, Keycloak, any IdP that exposes a <code>.well-known/openid-configuration</code> document.</p>
+
+<pre data-lang="bash"><button class="copybtn" data-txt='pip install "ragcompliance[dashboard,sso]"'>Copy</button><code><span class="bash-p">$</span> pip install <span class="str">"ragcompliance[dashboard,sso]"</span></code></pre>
+
+<pre data-lang="env"><button class="copybtn" data-txt='RAGCOMPLIANCE_OIDC_ISSUER=https://accounts.google.com
+RAGCOMPLIANCE_OIDC_CLIENT_ID=your-client-id
+RAGCOMPLIANCE_OIDC_CLIENT_SECRET=your-client-secret
+RAGCOMPLIANCE_OIDC_REDIRECT_URI=https://dash.example.com/auth/callback
+RAGCOMPLIANCE_OIDC_ALLOWED_DOMAINS=acme.com,acme.co.uk
+RAGCOMPLIANCE_SESSION_SECRET=...'>Copy</button><code>RAGCOMPLIANCE_OIDC_ISSUER=https://accounts.google.com
+RAGCOMPLIANCE_OIDC_CLIENT_ID=your-client-id
+RAGCOMPLIANCE_OIDC_CLIENT_SECRET=your-client-secret
+RAGCOMPLIANCE_OIDC_REDIRECT_URI=https://dash.example.com/auth/callback
+RAGCOMPLIANCE_OIDC_ALLOWED_DOMAINS=acme.com,acme.co.uk  <span class="cm"># optional allowlist</span>
+RAGCOMPLIANCE_SESSION_SECRET=$(python -c <span class="str">"import secrets; print(secrets.token_urlsafe(48))"</span>)</code></pre>
+
+  <p>With SSO enabled, every route except <code>/health</code>, <code>/login</code>, <code>/auth/callback</code>, <code>/logout</code>, and <code>/stripe/webhook</code> requires a signed-in session. Browser requests get a 302 redirect to <code>/login</code>. API clients (anything sending <code>Accept: application/json</code>) get a 401 so scripted access surfaces cleanly instead of following redirects into HTML.</p>
+
+  <div class="callout note"><strong>domain allowlist</strong>The <code>RAGCOMPLIANCE_OIDC_ALLOWED_DOMAINS</code> allowlist is optional. Leave it unset to permit any email the IdP authenticates. Set it to one or more comma-separated domains to lock down to corporate accounts only.</div>
+
+  <!-- ─── billing ─── -->
+  <h2 id="billing">Plans & checkout</h2>
+  <p>Two plans ship out of the box. Both are configured via Stripe products + recurring prices and wired into the dashboard at boot.</p>
+
+  <table>
+    <thead><tr><th>Tier</th><th>Price</th><th>Queries / month</th><th>Extras</th></tr></thead>
+    <tbody>
+      <tr><td>Team</td><td>$49 / mo</td><td>10,000</td><td>CSV/JSON export, email support</td></tr>
+      <tr><td>Enterprise</td><td>$199 / mo</td><td>Unlimited</td><td>SSO, custom retention, priority review</td></tr>
+    </tbody>
+  </table>
+
+  <p>Start a checkout from your app:</p>
+
+<pre data-lang="python"><button class="copybtn" data-txt='import requests
+
+r = requests.post(
+    "https://your-dashboard.example.com/billing/checkout",
+    json={"workspace_id": "my-workspace", "tier": "team"},
+)
+checkout_url = r.json()["checkout_url"]
+# redirect user to checkout_url'>Copy</button><code><span class="kw">import</span> requests
+
+r = requests.post(
+    <span class="str">"https://your-dashboard.example.com/billing/checkout"</span>,
+    json={<span class="str">"workspace_id"</span>: <span class="str">"my-workspace"</span>, <span class="str">"tier"</span>: <span class="str">"team"</span>},
+)
+checkout_url = r.json()[<span class="str">"checkout_url"</span>]
+<span class="cm"># redirect user to checkout_url</span></code></pre>
+
+  <h2 id="quota">Quota enforcement</h2>
+  <p>Quota enforcement is soft by default — the chain logs a warning if the workspace is over its limit but the invocation still runs. Set <code>RAGCOMPLIANCE_ENFORCE_QUOTA=true</code> to hard-block. In fail-closed mode the handler raises <code>RuntimeError</code> before the LLM runs, and no audit row is written for the blocked invocation.</p>
+
+  <div class="callout ok"><strong>why soft by default</strong>The first time you wire billing in, you don't want an expired invoice to suddenly break your product. Keep it soft while you verify that Stripe webhooks are delivering, then flip it to hard.</div>
+
+  <h2 id="rollover">Period rollover</h2>
+  <p>Query counters reset automatically at each billing period rollover. The reset is driven by Stripe's <code>customer.subscription.updated</code> webhook. If the webhook is ever missed (network blip, endpoint downtime, misconfigured secret), <code>check_query_quota</code> has a self-healing fallback: it compares the stored period_end to <code>now()</code> and forces a reset if the period has lapsed, so a dropped webhook can never permanently lock a workspace out.</p>
+
+  <!-- ─── going live ─── -->
+  <h2 id="going-live">Going live (Stripe)</h2>
+  <p>Flipping the dashboard from test mode to live mode is a four-step runbook. The readiness probe catches the paste errors before a customer does.</p>
+
+  <ol>
+    <li>In the Stripe dashboard, switch to Live mode. Create the Team and Enterprise products + recurring prices — live mode is a separate universe from test mode, the price IDs do not carry over. Copy the two <code>price_live_…</code> IDs.</li>
+    <li>Update your deployment environment:</li>
+  </ol>
+
+<pre data-lang="env"><button class="copybtn" data-txt='STRIPE_SECRET_KEY=sk_live_...
+STRIPE_WEBHOOK_SECRET=whsec_...
+STRIPE_PRICE_ID_TEAM=price_live_...
+STRIPE_PRICE_ID_ENTERPRISE=price_live_...
+APP_BASE_URL=https://dash.example.com'>Copy</button><code>STRIPE_SECRET_KEY=sk_live_...
+STRIPE_WEBHOOK_SECRET=whsec_...                   <span class="cm"># from the live webhook endpoint</span>
+STRIPE_PRICE_ID_TEAM=price_live_...
+STRIPE_PRICE_ID_ENTERPRISE=price_live_...
+APP_BASE_URL=https://dash.example.com             <span class="cm"># must NOT be localhost in live mode</span></code></pre>
+
+  <ol start="3">
+    <li>In Stripe → Developers → Webhooks, create a new live-mode endpoint at <code>https://&lt;your-dash&gt;/stripe/webhook</code>. Subscribe to <code>checkout.session.completed</code>, <code>customer.subscription.updated</code>, <code>customer.subscription.deleted</code>, and <code>invoice.paid</code>. Paste the signing secret into <code>STRIPE_WEBHOOK_SECRET</code>.</li>
+    <li>Hit the readiness probe:</li>
+  </ol>
+
+<pre data-lang="bash"><button class="copybtn" data-txt='curl https://<your-dash>/health/billing'>Copy</button><code><span class="bash-p">$</span> curl https://<span class="str">&lt;your-dash&gt;</span>/health/billing</code></pre>
+
+  <p>A fully-configured live deployment returns <code>{"ok": true, "mode": "live", …}</code> with a 200. Any misconfiguration comes back as 503 with an <code>issues</code> list:</p>
+
+<pre data-lang="json"><code>{
+  <span class="str">"ok"</span>: <span class="kw">false</span>,
+  <span class="str">"mode"</span>: <span class="str">"live"</span>,
+  <span class="str">"issues"</span>: [
+    <span class="str">"STRIPE_WEBHOOK_SECRET is not set"</span>,
+    <span class="str">"STRIPE_PRICE_ID_TEAM looks wrong, expected 'price_' prefix"</span>,
+    <span class="str">"APP_BASE_URL must not be localhost in live mode"</span>
+  ],
+  <span class="str">"summary"</span>: {
+    <span class="str">"secret_key_prefix"</span>: <span class="str">"sk_live…"</span>,
+    <span class="str">"webhook_secret_set"</span>: <span class="kw">false</span>,
+    <span class="str">"supabase_configured"</span>: <span class="kw">true</span>
+  }
+}</code></pre>
+
+  <p>Response sanitises every secret — only prefixes like <code>sk_live…</code> ever leak — so it's safe for an uptime monitor or status page to poll.</p>
+
+  <p>Programmatic callers get the same structure via <code>BillingManager.readiness()</code> returning a <code>BillingReadiness</code> dataclass.</p>
+
+<pre data-lang="python"><button class="copybtn" data-txt='from ragcompliance import BillingManager, BillingReadiness
+
+rd: BillingReadiness = BillingManager().readiness()
+if not rd.ok:
+    raise SystemExit("refusing to start: " + ", ".join(rd.issues))'>Copy</button><code><span class="kw">from</span> ragcompliance <span class="kw">import</span> <span class="cls">BillingManager</span>, <span class="cls">BillingReadiness</span>
+
+rd: <span class="cls">BillingReadiness</span> = <span class="cls">BillingManager</span>().readiness()
+<span class="kw">if not</span> rd.ok:
+    <span class="kw">raise</span> SystemExit(<span class="str">"refusing to start: "</span> + <span class="str">", "</span>.join(rd.issues))</code></pre>
+
+  <!-- ─── SOC2 ─── -->
+  <h2 id="soc2">SOC 2 evidence</h2>
+  <p>Most compliance teams can't sign off on a RAG pipeline without a written trail of what was retrieved, what was answered, and proof that the trail hasn't been tampered with. The built-in evidence generator produces a Markdown report mapped to the Trust Services Criteria controls ragcompliance actually has data for: <strong>CC6.1</strong> (logical access), <strong>CC7.2</strong> (system operation monitoring), <strong>CC8.1</strong> (change management), <strong>A1.1</strong> (availability), <strong>C1.1</strong> (confidentiality).</p>
+
+<pre data-lang="bash"><button class="copybtn" data-txt='python -m ragcompliance.soc2 \
+  --workspace acme-prod \
+  --start 2026-01-01 \
+  --end 2026-03-31 \
+  --sample 10 --seed 42 \
+  --out acme-q1-2026-evidence.md'>Copy</button><code><span class="bash-p">$</span> python -m ragcompliance.soc2 \
+    --workspace acme-prod \
+    --start 2026-01-01 \
+    --end 2026-03-31 \
+    --sample 10 --seed 42 \
+    --out acme-q1-2026-evidence.md</code></pre>
+
+  <p>The report pulls records straight from <code>rag_audit_logs</code>, computes integrity stats (signed vs unsigned, unique sessions, avg latency, models observed), recomputes the SHA-256 signature on a random sample so an auditor can spot-check independently, and renders the control matrix and methodology section. It is not itself a SOC 2 attestation — only a licensed auditor can issue one — but it cuts audit-prep back-and-forth from weeks to minutes.</p>
+
+  <p>Programmatic access is the same pipeline without argparse:</p>
+
+<pre data-lang="python"><button class="copybtn" data-txt='from ragcompliance.soc2 import generate_report
+
+md = generate_report(
+    workspace_id="acme-prod",
+    start="2026-01-01",
+    end="2026-03-31",
+    sample_size=10,
+    seed=42,
+)'>Copy</button><code><span class="kw">from</span> ragcompliance.soc2 <span class="kw">import</span> generate_report
+
+md = generate_report(
+    workspace_id=<span class="str">"acme-prod"</span>,
+    start=<span class="str">"2026-01-01"</span>,
+    end=<span class="str">"2026-03-31"</span>,
+    sample_size=<span class="num">10</span>,
+    seed=<span class="num">42</span>,
+)</code></pre>
+
+  <!-- ─── async ─── -->
+  <h2 id="async">Async audit writes</h2>
+  <p>Audit writes are fire-and-forget by default. <code>save()</code> enqueues the record onto a bounded in-memory queue and a single daemon worker drains it into Supabase, so the chain's hot path never blocks on audit I/O.</p>
+
+  <p>In benchmarks, per-chain overhead drops from roughly 1.2s (sync Supabase RTT) to well under 1ms (enqueue only) — a three to four order of magnitude improvement.</p>
+
+  <p>If Supabase is unreachable, records buffer in memory up to <code>RAGCOMPLIANCE_ASYNC_MAX_QUEUE</code> (default 1000) and then drop with a log warning rather than leak memory. On normal process exit an <code>atexit</code> hook drains pending records within <code>RAGCOMPLIANCE_ASYNC_SHUTDOWN_TIMEOUT</code> seconds (default 5). You can also call <code>handler.storage.flush()</code> explicitly in tests or your own shutdown path.</p>
+
+  <div class="callout note"><strong>when to disable async</strong>Set <code>RAGCOMPLIANCE_ASYNC_WRITES=false</code> for tests that inspect storage mid-chain, or for workloads where you'd rather pay the latency than risk any in-flight data loss on a crash.</div>
+
+  <!-- ─── slack ─── -->
+  <h2 id="slack">Slack anomaly alerts</h2>
+  <p>Set <code>RAGCOMPLIANCE_SLACK_WEBHOOK_URL</code> to a Slack incoming-webhook URL (or any compatible receiver: Discord, Teams via shim, your own HTTP endpoint) and the handler fires async alerts when a chain looks unhealthy. Four rules, all env-tunable:</p>
+
+  <table>
+    <thead><tr><th>Rule</th><th>Fires when</th><th>Tuned by</th></tr></thead>
+    <tbody>
+      <tr><td><code>retrieval_returned_zero_chunks</code></td><td>Retriever returned no documents.</td><td>n/a</td></tr>
+      <tr><td><code>low_similarity</code></td><td>Best matching chunk scored below threshold.</td><td><code>RAGCOMPLIANCE_SLACK_MIN_SIMILARITY</code> (default 0.3)</td></tr>
+      <tr><td><code>chain_slow</code></td><td>End-to-end latency exceeded threshold.</td><td><code>RAGCOMPLIANCE_SLACK_SLOW_CHAIN_MS</code> (default 10000)</td></tr>
+      <tr><td><code>chain_errored</code></td><td>LangChain or LlamaIndex raised before the chain completed.</td><td>n/a</td></tr>
+    </tbody>
+  </table>
+
+  <p>Alerts post on a separate daemon worker with a bounded queue, so Slack outages can't back-pressure your chain. When the queue fills, alerts drop with a log warning. Set <code>RAGCOMPLIANCE_SLACK_DASHBOARD_URL</code> to include a <strong>View in dashboard</strong> link in each payload.</p>
+
+  <!-- ─── deploy ─── -->
+  <h2 id="deploy">Deployment</h2>
+  <p>The dashboard is a single FastAPI app. It's stateless — state lives in Supabase — so any container platform works identically.</p>
+
+  <h3 id="deploy-render">Render (fastest)</h3>
+  <ol>
+    <li>Create a new Web Service on <a href="https://render.com" target="_blank" rel="noopener">render.com</a>, pointing at your repo.</li>
+    <li>Build command: <code>pip install -e ".[supabase,dashboard,llamaindex,sso]"</code></li>
+    <li>Start command: <code>uvicorn ragcompliance.app:app --host 0.0.0.0 --port $PORT</code></li>
+    <li>Copy every variable from <code>.env.example</code> into Render's environment settings.</li>
+    <li>After the service is live, update the Stripe webhook endpoint to <code>https://&lt;your-render-url&gt;/stripe/webhook</code>.</li>
+  </ol>
+
+  <h3 id="deploy-other">Fly.io, Railway, Cloud Run</h3>
+  <p>All three work identically. The app is a stateless container, no volumes, no sidecars. A minimal Dockerfile:</p>
+
+<pre data-lang="dockerfile"><button class="copybtn" data-txt='FROM python:3.12-slim
+WORKDIR /app
+COPY . .
+RUN pip install -e ".[supabase,dashboard,llamaindex,sso]"
+CMD ["uvicorn", "ragcompliance.app:app", "--host", "0.0.0.0", "--port", "8000"]'>Copy</button><code><span class="kw">FROM</span> python:3.12-slim
+<span class="kw">WORKDIR</span> /app
+<span class="kw">COPY</span> . .
+<span class="kw">RUN</span> pip install -e <span class="str">".[supabase,dashboard,llamaindex,sso]"</span>
+<span class="kw">CMD</span> [<span class="str">"uvicorn"</span>, <span class="str">"ragcompliance.app:app"</span>, <span class="str">"--host"</span>, <span class="str">"0.0.0.0"</span>, <span class="str">"--port"</span>, <span class="str">"8000"</span>]</code></pre>
+
+  <!-- ─── reference ─── -->
+  <h2 id="reference">API reference</h2>
+
+  <h3 id="ref-handler"><code>RAGComplianceHandler</code></h3>
+  <p>LangChain callback handler. Instantiate once per chat session or once per request, pass via <code>config={"callbacks": [handler]}</code>.</p>
+
+<pre data-lang="python"><code><span class="cls">RAGComplianceHandler</span>(
+    config: <span class="cls">RAGComplianceConfig</span>,
+    session_id: <span class="cls">str</span> | <span class="kw">None</span> = <span class="kw">None</span>,
+)</code></pre>
+
+  <h3 id="ref-li-handler"><code>LlamaIndexRAGComplianceHandler</code></h3>
+  <p>LlamaIndex callback handler. Import from <code>ragcompliance.llamaindex_handler</code>. Attach via <code>Settings.callback_manager = CallbackManager([handler])</code>.</p>
+
+  <h3 id="ref-config"><code>RAGComplianceConfig</code></h3>
+  <p>Configuration dataclass. The common constructor is <code>RAGComplianceConfig.from_env()</code>, which reads every <code>RAGCOMPLIANCE_*</code> variable.</p>
+
+<pre data-lang="python"><code><span class="cls">RAGComplianceConfig</span>(
+    supabase_url: <span class="cls">str</span> | <span class="kw">None</span>,
+    supabase_key: <span class="cls">str</span> | <span class="kw">None</span>,
+    workspace_id: <span class="cls">str</span>,
+    dev_mode: <span class="cls">bool</span> = <span class="kw">False</span>,
+    enforce_quota: <span class="cls">bool</span> = <span class="kw">False</span>,
+    async_writes: <span class="cls">bool</span> = <span class="kw">True</span>,
+    async_max_queue: <span class="cls">int</span> = <span class="num">1000</span>,
+    async_shutdown_timeout: <span class="cls">float</span> = <span class="num">5.0</span>,
+)</code></pre>
+
+  <h3 id="ref-billing"><code>BillingManager</code> / <code>BillingReadiness</code></h3>
+
+<pre data-lang="python"><code><span class="cls">BillingManager</span>(
+    stripe_secret_key: <span class="cls">str</span> | <span class="kw">None</span> = <span class="kw">None</span>,
+    stripe_webhook_secret: <span class="cls">str</span> | <span class="kw">None</span> = <span class="kw">None</span>,
+    supabase_url: <span class="cls">str</span> | <span class="kw">None</span> = <span class="kw">None</span>,
+    supabase_key: <span class="cls">str</span> | <span class="kw">None</span> = <span class="kw">None</span>,
+    app_base_url: <span class="cls">str</span> | <span class="kw">None</span> = <span class="kw">None</span>,
+)
+
+<span class="cls">BillingManager</span>.readiness() -> <span class="cls">BillingReadiness</span>
+
+<span class="kw">@dataclass</span>
+<span class="kw">class</span> <span class="cls">BillingReadiness</span>:
+    mode: <span class="cls">str</span>            <span class="cm"># "live" | "test" | "unconfigured"</span>
+    ok: <span class="cls">bool</span>
+    issues: <span class="cls">list</span>[<span class="cls">str</span>]
+    summary: <span class="cls">dict</span>[<span class="cls">str</span>, <span class="cls">Any</span>]
+    <span class="kw">def</span> to_dict(<span class="var">self</span>) -> <span class="cls">dict</span>: ...</code></pre>
+
+  <h3 id="ref-soc2"><code>ragcompliance.soc2.generate_report</code></h3>
+
+<pre data-lang="python"><code>generate_report(
+    workspace_id: <span class="cls">str</span>,
+    start: <span class="cls">str</span>,                     <span class="cm"># ISO date</span>
+    end: <span class="cls">str</span>,                       <span class="cm"># ISO date</span>
+    sample_size: <span class="cls">int</span> = <span class="num">10</span>,
+    seed: <span class="cls">int</span> | <span class="kw">None</span> = <span class="kw">None</span>,
+    storage: <span class="cls">AuditStorage</span> | <span class="kw">None</span> = <span class="kw">None</span>,
+) -> <span class="cls">str</span></code></pre>
+
+  <!-- ─── env ref ─── -->
+  <h2 id="envref">Environment variable reference</h2>
+  <table>
+    <thead><tr><th>Name</th><th>Default</th><th>Purpose</th></tr></thead>
+    <tbody>
+      <tr><td><code>RAGCOMPLIANCE_SUPABASE_URL</code></td><td></td><td>Supabase project URL.</td></tr>
+      <tr><td><code>RAGCOMPLIANCE_SUPABASE_KEY</code></td><td></td><td>Supabase <strong>service role</strong> key.</td></tr>
+      <tr><td><code>RAGCOMPLIANCE_WORKSPACE_ID</code></td><td></td><td>Tenant isolation key.</td></tr>
+      <tr><td><code>RAGCOMPLIANCE_DEV_MODE</code></td><td><code>false</code></td><td><code>true</code> = log to stdout; <code>false</code> = persist to Supabase.</td></tr>
+      <tr><td><code>RAGCOMPLIANCE_ENFORCE_QUOTA</code></td><td><code>false</code></td><td><code>true</code> raises <code>RuntimeError</code> when over limit.</td></tr>
+      <tr><td><code>RAGCOMPLIANCE_ASYNC_WRITES</code></td><td><code>true</code></td><td>Fire-and-forget audit writes.</td></tr>
+      <tr><td><code>RAGCOMPLIANCE_ASYNC_MAX_QUEUE</code></td><td><code>1000</code></td><td>Bounded in-memory buffer size.</td></tr>
+      <tr><td><code>RAGCOMPLIANCE_ASYNC_SHUTDOWN_TIMEOUT</code></td><td><code>5.0</code></td><td>Seconds to wait on atexit drain.</td></tr>
+      <tr><td><code>RAGCOMPLIANCE_SLACK_WEBHOOK_URL</code></td><td></td><td>Enables Slack alerts when set.</td></tr>
+      <tr><td><code>RAGCOMPLIANCE_SLACK_MIN_SIMILARITY</code></td><td><code>0.3</code></td><td>Threshold for <code>low_similarity</code>.</td></tr>
+      <tr><td><code>RAGCOMPLIANCE_SLACK_SLOW_CHAIN_MS</code></td><td><code>10000</code></td><td>Threshold for <code>chain_slow</code>.</td></tr>
+      <tr><td><code>RAGCOMPLIANCE_SLACK_DASHBOARD_URL</code></td><td></td><td>Appends a "View in dashboard" link to alert payloads.</td></tr>
+      <tr><td><code>RAGCOMPLIANCE_OIDC_ISSUER</code></td><td></td><td>OIDC provider URL (discovery endpoint).</td></tr>
+      <tr><td><code>RAGCOMPLIANCE_OIDC_CLIENT_ID</code></td><td></td><td>OIDC client ID.</td></tr>
+      <tr><td><code>RAGCOMPLIANCE_OIDC_CLIENT_SECRET</code></td><td></td><td>OIDC client secret.</td></tr>
+      <tr><td><code>RAGCOMPLIANCE_OIDC_REDIRECT_URI</code></td><td></td><td>Full callback URL (<code>.../auth/callback</code>).</td></tr>
+      <tr><td><code>RAGCOMPLIANCE_OIDC_ALLOWED_DOMAINS</code></td><td></td><td>Optional comma-separated email domain allowlist.</td></tr>
+      <tr><td><code>RAGCOMPLIANCE_SESSION_SECRET</code></td><td></td><td>Session cookie signing key.</td></tr>
+      <tr><td><code>STRIPE_SECRET_KEY</code></td><td></td><td><code>sk_live_…</code> or <code>sk_test_…</code>.</td></tr>
+      <tr><td><code>STRIPE_WEBHOOK_SECRET</code></td><td></td><td>Endpoint signing secret from the Stripe webhook config.</td></tr>
+      <tr><td><code>STRIPE_PRICE_ID_TEAM</code></td><td></td><td>Stripe price ID (must start with <code>price_</code>).</td></tr>
+      <tr><td><code>STRIPE_PRICE_ID_ENTERPRISE</code></td><td></td><td>Stripe price ID (must start with <code>price_</code>).</td></tr>
+      <tr><td><code>APP_BASE_URL</code></td><td></td><td>Dashboard base URL. Must not be <code>localhost</code> in live mode.</td></tr>
+    </tbody>
+  </table>
+
+  <!-- ─── license ─── -->
+  <h2 id="license">License & contact</h2>
+  <p>MIT licensed. Source at <a href="https://github.com/dakshtrehan/ragcompliance" target="_blank" rel="noopener">github.com/dakshtrehan/ragcompliance</a>. Issues, PRs, and questions welcome.</p>
+  <p>For enterprise support, private-deployment guidance, or SOC 2 prep help, email <a href="mailto:daksh.trehan@hotmail.com">daksh.trehan@hotmail.com</a>.</p>
+
+  <div class="page-meta">
+    <span>ragcompliance</span><span class="sep">·</span>
+    <span>v0.1.3</span><span class="sep">·</span>
+    <span>126 tests green</span><span class="sep">·</span>
+    <span>MIT</span>
+  </div>
+</article>
+
+</div>
+</div>
+
+<script>
+  // copy buttons
+  document.querySelectorAll(".copybtn").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const raw = btn.getAttribute("data-txt") || "";
+      try {
+        await navigator.clipboard.writeText(raw);
+        const prev = btn.textContent;
+        btn.textContent = "Copied";
+        btn.classList.add("done");
+        setTimeout(() => { btn.textContent = prev; btn.classList.remove("done"); }, 1400);
+      } catch (_) {}
+    });
+  });
+
+  // active sidebar link tracking
+  const links = Array.from(document.querySelectorAll("aside.side a[href^='#']"));
+  const sections = links
+    .map((a) => document.getElementById(a.getAttribute("href").slice(1)))
+    .filter(Boolean);
+  const byId = {};
+  links.forEach((a) => { byId[a.getAttribute("href").slice(1)] = a; });
+
+  const io = new IntersectionObserver((entries) => {
+    entries.forEach((e) => {
+      if (e.isIntersecting) {
+        const id = e.target.id;
+        links.forEach((a) => a.classList.remove("active"));
+        if (byId[id]) byId[id].classList.add("active");
+      }
+    });
+  }, { rootMargin: "-30% 0px -60% 0px", threshold: 0 });
+  sections.forEach((s) => io.observe(s));
+</script>
+
+</body>
+</html>
