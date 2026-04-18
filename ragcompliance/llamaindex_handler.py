@@ -36,11 +36,12 @@ logger = logging.getLogger(__name__)
 
 try:
     from llama_index.core.callbacks.base_handler import BaseCallbackHandler as _LIBase
-    from llama_index.core.callbacks.schema import CBEventType
+    from llama_index.core.callbacks.schema import CBEventType, EventPayload
     _LLAMA_AVAILABLE = True
 except Exception:  # pragma: no cover - optional dep path
     _LIBase = object  # type: ignore
     CBEventType = None  # type: ignore
+    EventPayload = None  # type: ignore
     _LLAMA_AVAILABLE = False
 
 
@@ -139,8 +140,15 @@ class LlamaIndexRAGComplianceHandler(_LIBase):  # type: ignore[misc]
     ) -> str:
         payload = payload or {}
         # LlamaIndex emits a QUERY event at the start of a query engine call.
+        # Payload keys are EventPayload StrEnum values; string keys still match
+        # because StrEnum compares equal to its value, but prefer the enum when
+        # available for clarity and forward-compat.
         if CBEventType and event_type == CBEventType.QUERY:
-            q = payload.get("query_str") or payload.get("query")
+            q = None
+            if EventPayload is not None:
+                q = payload.get(EventPayload.QUERY_STR)
+            if not q:
+                q = payload.get("query_str") or payload.get("query")
             if q:
                 self._query = str(q)
         return event_id or str(uuid.uuid4())
@@ -157,7 +165,12 @@ class LlamaIndexRAGComplianceHandler(_LIBase):  # type: ignore[misc]
             return
 
         if event_type == CBEventType.RETRIEVE:
-            nodes = payload.get("nodes") or []
+            # Payload key is EventPayload.NODES, which is a StrEnum equal to "nodes".
+            nodes = (
+                (payload.get(EventPayload.NODES) if EventPayload is not None else None)
+                or payload.get("nodes")
+                or []
+            )
             for i, node_with_score in enumerate(nodes):
                 # LlamaIndex yields NodeWithScore; attribute access is safest.
                 node = getattr(node_with_score, "node", node_with_score)
@@ -188,19 +201,55 @@ class LlamaIndexRAGComplianceHandler(_LIBase):  # type: ignore[misc]
                 )
 
         elif event_type == CBEventType.LLM:
-            response = payload.get("response")
-            if response is not None:
+            # LLM end payload holds a CompletionResponse under EventPayload.COMPLETION
+            # (with a .text attribute) OR a ChatResponse under EventPayload.MESSAGES.
+            # Older code assumed a "response" key — that key doesn't exist in
+            # 0.10+. Prefer COMPLETION, then MESSAGES, then legacy "response".
+            completion = None
+            if EventPayload is not None:
+                completion = payload.get(EventPayload.COMPLETION) or payload.get(
+                    EventPayload.MESSAGES
+                )
+            if completion is None:
+                completion = payload.get("completion") or payload.get("response")
+            if completion is not None:
                 text = (
-                    getattr(response, "message", None)
+                    getattr(completion, "text", None)
+                    or getattr(completion, "message", None)
+                    or str(completion)
+                )
+                answer = text.content if hasattr(text, "content") else str(text)
+                # Only overwrite if non-empty — protects multi-LLM-call flows
+                # where a refine pass might emit an empty continuation.
+                if answer:
+                    self._llm_answer = answer
+            # Try to pull model name from the serialized payload.
+            serialized = payload.get(EventPayload.SERIALIZED) if EventPayload is not None else None
+            if not isinstance(serialized, dict):
+                serialized = payload.get("serialized")
+            if isinstance(serialized, dict):
+                model = serialized.get("model") or serialized.get("model_name")
+                if model:
+                    self._model_name = str(model)
+
+        elif event_type == CBEventType.SYNTHESIZE:
+            # The synthesize event's end payload carries the FINAL Response
+            # object with the assembled answer in .response. This is the
+            # canonical capture point for the answer — more reliable than
+            # catching the last LLM call, especially in refine/compact modes.
+            response = None
+            if EventPayload is not None:
+                response = payload.get(EventPayload.RESPONSE)
+            if response is None:
+                response = payload.get("response")
+            if response is not None:
+                answer = (
+                    getattr(response, "response", None)
                     or getattr(response, "text", None)
                     or str(response)
                 )
-                self._llm_answer = (
-                    text.content if hasattr(text, "content") else str(text)
-                )
-            model = payload.get("serialized", {}).get("model") if isinstance(payload.get("serialized"), dict) else None
-            if model:
-                self._model_name = str(model)
+                if answer:
+                    self._llm_answer = str(answer)
 
     # ------------------------------------------------------------------ #
     # Helpers                                                              #

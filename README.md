@@ -11,10 +11,26 @@
 
 ## Quickstart
 
+Install with the Supabase extra (this is the one you want — without it, audit logs only print to stdout):
+
 ```bash
-pip install ragcompliance
-pip install "ragcompliance[supabase,dashboard]"     # persistence + dashboard
-pip install "ragcompliance[llamaindex]"             # optional LlamaIndex support
+pip install "ragcompliance[supabase]"
+```
+
+Optional extras:
+
+```bash
+pip install "ragcompliance[supabase,dashboard]"     # + FastAPI dashboard
+pip install "ragcompliance[supabase,llamaindex]"    # + LlamaIndex handler
+```
+
+Supported frameworks: `langchain-core >= 0.2` (LangChain 0.2+ and all LCEL chains), `llama-index-core >= 0.10`. Python 3.11 or newer.
+
+Create a free Supabase project at https://supabase.com, then run these once in the SQL editor:
+
+```sql
+-- paste supabase_schema.sql           (audit log table + RLS)
+-- paste supabase_migration_billing.sql (billing + usage RPC)
 ```
 
 Copy `.env.example` to `.env` and fill in your values:
@@ -22,30 +38,51 @@ Copy `.env.example` to `.env` and fill in your values:
 ```bash
 RAGCOMPLIANCE_SUPABASE_URL=https://your-project.supabase.co
 RAGCOMPLIANCE_SUPABASE_KEY=your-service-role-key
-RAGCOMPLIANCE_WORKSPACE_ID=your-workspace-id
-RAGCOMPLIANCE_DEV_MODE=true   # logs to stdout in local dev
+RAGCOMPLIANCE_WORKSPACE_ID=your-workspace-id  # one per tenant/customer
+RAGCOMPLIANCE_DEV_MODE=false                  # true = log to stdout, false = write to Supabase
+RAGCOMPLIANCE_ENFORCE_QUOTA=false             # true = raise RuntimeError when over limit
 ```
 
-Run the SQL schemas once in your Supabase SQL editor:
-
-```sql
--- paste supabase_schema.sql  (audit log table + RLS)
--- paste supabase_migration_billing.sql  (billing + usage RPC)
-```
+`workspace_id` is how RAGCompliance isolates audit logs across tenants. One workspace per customer in a multi-tenant SaaS, or one per app for internal use. Row-level security keeps rows from leaking across workspaces.
 
 ## Usage (LangChain)
 
+Drop the handler into any existing chain via `config={"callbacks": [handler]}`. Here's a complete runnable example using an OpenAI LLM and a pre-built retriever:
+
 ```python
+from langchain_openai import ChatOpenAI
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.runnables import RunnablePassthrough, RunnableLambda
+
 from ragcompliance import RAGComplianceHandler, RAGComplianceConfig
 
-config = RAGComplianceConfig.from_env()
-handler = RAGComplianceHandler(config=config, session_id="user-abc")
+# Your existing retriever (FAISS, Chroma, Pinecone, etc.)
+retriever = my_vectorstore.as_retriever(search_kwargs={"k": 4})
+
+prompt = ChatPromptTemplate.from_template(
+    "Context:\n{context}\n\nQuestion: {query}\n\nAnswer:"
+)
+llm = ChatOpenAI(model="gpt-4o-mini")
+
+chain = (
+    {"context": retriever | RunnableLambda(lambda docs: "\n\n".join(d.page_content for d in docs)),
+     "query": RunnablePassthrough()}
+    | prompt
+    | llm
+)
+
+handler = RAGComplianceHandler(
+    config=RAGComplianceConfig.from_env(),
+    session_id="user-abc",
+)
 
 answer = chain.invoke(
-    {"query": "What does section 4.2 of the contract say?"},
+    "What does section 4.2 of the contract say?",
     config={"callbacks": [handler]},
 )
 ```
+
+The handler captures the full chain — query, all retrieved chunks with source URLs and similarity scores, the LLM answer, model name, and latency — signs it with SHA-256, and writes one row per chain invocation to `rag_audit_logs`.
 
 ## Usage (LlamaIndex)
 
@@ -134,7 +171,9 @@ checkout_url = r.json()["checkout_url"]
 # Redirect the user to checkout_url
 ```
 
-Quota enforcement is soft by default (the chain logs a warning if the workspace is over its limit). Set `RAGCOMPLIANCE_ENFORCE_QUOTA=true` to hard-block instead.
+Quota enforcement is soft by default (the chain logs a warning if the workspace is over its limit). Set `RAGCOMPLIANCE_ENFORCE_QUOTA=true` to hard-block instead — the handler will raise `RuntimeError` before the LLM runs.
+
+Query counters reset automatically at each billing period rollover. The reset is driven by Stripe's `customer.subscription.updated` webhook, with a self-healing fallback in `check_query_quota` that forces a reset if the stored period end falls into the past (so a dropped webhook can never permanently lock a workspace out).
 
 ## Why RAGCompliance
 
@@ -170,13 +209,15 @@ pytest -v
 
 ## Roadmap
 
-- [x] LangChain callback handler
-- [x] LlamaIndex callback handler
+- [x] LangChain callback handler (LCEL-safe, outermost-chain latching)
+- [x] LlamaIndex callback handler (SYNTHESIZE-based answer capture)
 - [x] Dashboard export to CSV / JSON
-- [x] Stripe billing + quota metering
+- [x] Stripe billing + quota metering with period-rollover reset
+- [x] Fail-closed quota enforcement (`RAGCOMPLIANCE_ENFORCE_QUOTA=true`)
 - [ ] Slack alerts for anomalous queries
 - [ ] SOC 2 report template generator
 - [ ] SSO (SAML / OIDC) on the dashboard
+- [ ] Async audit writes (fire-and-forget path for latency-sensitive chains)
 
 ## License
 

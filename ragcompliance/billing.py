@@ -314,9 +314,25 @@ class BillingManager:
         sub = self._load_or_new(workspace_id)
         sub.stripe_subscription_id = subscription.get("id")
         sub.status = subscription.get("status", sub.status)
+        # Period rollover detection: if the incoming current_period_end is
+        # strictly later than the stored one, we crossed into a new billing
+        # cycle and the query counter must reset to 0. This is the primary
+        # mechanism; check_query_quota() also has a self-heal fallback for
+        # the case where this webhook never arrives.
+        period_rolled_over = False
         cpe = subscription.get("current_period_end")
         if cpe:
-            sub.current_period_end = datetime.fromtimestamp(cpe, tz=timezone.utc)
+            new_cpe = datetime.fromtimestamp(cpe, tz=timezone.utc)
+            if sub.current_period_end is None or new_cpe > sub.current_period_end:
+                period_rolled_over = sub.current_period_end is not None
+            sub.current_period_end = new_cpe
+        if period_rolled_over:
+            logger.info(
+                f"Billing period rolled over for {workspace_id!r}; "
+                f"resetting query_count_current_period from "
+                f"{sub.query_count_current_period} to 0."
+            )
+            sub.query_count_current_period = 0
         # If price changed, reflect tier
         items = ((subscription.get("items") or {}).get("data") or [])
         if items:
@@ -326,7 +342,13 @@ class BillingManager:
                     sub.tier = tier_name
                     break
         self._upsert(sub)
-        return {"handled": True, "workspace_id": workspace_id, "tier": sub.tier, "status": sub.status}
+        return {
+            "handled": True,
+            "workspace_id": workspace_id,
+            "tier": sub.tier,
+            "status": sub.status,
+            "period_rolled_over": period_rolled_over,
+        }
 
     def _on_subscription_deleted(self, subscription: dict[str, Any]) -> dict[str, Any]:
         workspace_id = (subscription.get("metadata") or {}).get("workspace_id")
@@ -390,6 +412,12 @@ class BillingManager:
         """
         Returns True if the workspace is within its tier limit (or has no sub),
         False only when an active paid tier is over its limit.
+
+        Also auto-resets the usage counter when the stored current_period_end
+        is in the past — a self-healing fallback in case the Stripe
+        customer.subscription.updated webhook is delayed or dropped. Without
+        this, a period rollover that missed its webhook would leave the
+        workspace permanently locked out.
         """
         row = self.get_workspace_subscription(workspace_id)
         if not row:
@@ -398,6 +426,29 @@ class BillingManager:
         sub = WorkspaceSubscription.from_row(row)
         if sub.status not in ("active", "trialing"):
             return True  # enforcement left to the app layer for inactive subs
+
+        # Self-heal stale period: if current_period_end is in the past, the
+        # billing cycle has rolled over without a webhook arriving. Reset the
+        # counter optimistically so the user isn't locked out. Stripe will
+        # eventually fire customer.subscription.updated with the new period_end
+        # and we'll pick that up in _on_subscription_updated.
+        now = datetime.now(timezone.utc)
+        if sub.current_period_end is not None and sub.current_period_end < now:
+            logger.info(
+                f"Self-healing stale billing period for {workspace_id!r}: "
+                f"current_period_end={sub.current_period_end.isoformat()} is "
+                f"in the past, resetting query_count_current_period to 0."
+            )
+            try:
+                if self._supabase is not None:
+                    self._supabase.rpc(
+                        "reset_workspace_usage",
+                        {"p_workspace_id": workspace_id},
+                    ).execute()
+            except Exception as e:
+                logger.warning(f"reset_workspace_usage rpc failed: {e}")
+            return True
+
         limit = (PLANS.get(sub.tier) or {}).get("query_limit")
         if limit is None:
             return True  # unlimited
