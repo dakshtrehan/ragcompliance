@@ -41,7 +41,8 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/dakshtrehan/ragcompliance"
+Homepage = "https://www.dakshtrehan.com/ragcompliance/"
+Documentation = "https://www.dakshtrehan.com/ragcompliance/docs.html"
 Repository = "https://github.com/dakshtrehan/ragcompliance"
 Issues = "https://github.com/dakshtrehan/ragcompliance/issues"
 
