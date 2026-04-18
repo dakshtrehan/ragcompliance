@@ -75,9 +75,15 @@ CONTROLS: list[dict[str, str]] = [
         "title": "Integrity of system output",
         "claim": (
             "Each chain invocation is signed with SHA-256 over the tuple "
-            "(query, retrieved_chunks, llm_answer) and persisted with the "
-            "audit record. Any post-hoc modification is detectable by "
-            "recomputing the signature."
+            "(query, retrieved_chunks[i].content, retrieved_chunks[i].source_url, "
+            "retrieved_chunks[i].chunk_id, llm_answer). This covers the exact "
+            "text the model saw, the URIs it came from, and the answer "
+            "produced — the fields an auditor reconstructs to answer 'what "
+            "did the model see, and what did it say?'. Similarity scores and "
+            "free-form chunk metadata are intentionally out of scope because "
+            "they are retriever-implementation details that do not affect "
+            "the answer's provenance. Any post-hoc modification of any "
+            "covered field is detectable by recomputing the signature."
         ),
     },
     {

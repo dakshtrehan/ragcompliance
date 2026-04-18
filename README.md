@@ -132,6 +132,20 @@ Every invocation writes an audit record like this:
 }
 ```
 
+### What the signature covers
+
+`chain_signature` is a SHA-256 over a JSON payload containing exactly these fields, in a stable order:
+
+- `query` — the user's question string as received by the chain
+- for each retrieved chunk: `content`, `source_url`, `chunk_id`
+- `llm_answer` — the model's final answer string
+
+These are the fields that answer *"what did the model see, and what did it say?"* — the chain of custody auditors actually want to verify.
+
+Intentionally out of scope: `similarity_score`, free-form chunk `metadata`, `model_name`, `latency_ms`, `timestamp`, `session_id`. These are useful observability fields but they're either retriever-implementation details or metadata about the run, not statements about the answer's provenance. Tampering with them does not invalidate the answer, and including them would make the signature brittle across retriever versions.
+
+A coarser-grained signature that also covers retriever scores is on the roadmap as "Signature coverage v2" for workspaces that want stricter retrieval-level integrity.
+
 ## Dashboard
 
 ```bash
