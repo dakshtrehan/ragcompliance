@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import uuid
 from unittest.mock import patch
 
 import pytest
@@ -36,7 +37,9 @@ class TestQueryCapture:
 
     def test_ignores_unknown_keys(self, handler):
         handler.on_chain_start({}, {"irrelevant": "nothing"})
-        assert handler._query == ""
+        # Falls back to stringifying the whole dict so we at least have
+        # something when the input shape is unexpected.
+        assert "irrelevant" in handler._query
 
 
 class TestRetrieverCapture:
@@ -108,12 +111,22 @@ class TestChainSignature:
 
 
 class TestChainEnd:
+    """The handler latches onto the OUTERMOST chain via run_id to avoid
+    saving half-built records for intermediate LCEL sub-runnables. These
+    tests simulate the outer chain boundary by priming _root_run_id and
+    passing the same run_id into on_chain_end."""
+
     def test_saves_record_on_chain_end(self, handler):
+        run_id = uuid.uuid4()
+        handler._root_run_id = run_id
         handler._query = "What is auditability?"
         handler._llm_answer = "It means being able to trace decisions."
 
         with patch.object(handler.storage, "save", return_value=True) as mock_save:
-            handler.on_chain_end({"answer": "It means being able to trace decisions."})
+            handler.on_chain_end(
+                {"answer": "It means being able to trace decisions."},
+                run_id=run_id,
+            )
             mock_save.assert_called_once()
             record = mock_save.call_args[0][0]
             assert record.query == "What is auditability?"
@@ -121,18 +134,34 @@ class TestChainEnd:
             assert record.workspace_id == "test-workspace"
             assert len(record.chain_signature) == 64  # SHA-256 hex
 
+    def test_ignores_inner_chain_end(self, handler):
+        """Inner LCEL sub-runnables fire on_chain_end too; the handler must
+        ignore those or it'd save an empty record before the LLM ran."""
+        outer = uuid.uuid4()
+        inner = uuid.uuid4()
+        handler._root_run_id = outer
+
+        with patch.object(handler.storage, "save", return_value=True) as mock_save:
+            handler.on_chain_end({"intermediate": "stuff"}, run_id=inner)
+            mock_save.assert_not_called()
+
     def test_resets_state_after_chain_end(self, handler):
+        run_id = uuid.uuid4()
+        handler._root_run_id = run_id
         handler._query = "some query"
         handler._llm_answer = "some answer"
 
         with patch.object(handler.storage, "save", return_value=True):
-            handler.on_chain_end({})
+            handler.on_chain_end({}, run_id=run_id)
 
         assert handler._query == ""
         assert handler._chunks == []
         assert handler._llm_answer == ""
+        assert handler._root_run_id is None
 
     def test_resets_on_error(self, handler):
+        run_id = uuid.uuid4()
+        handler._root_run_id = run_id
         handler._query = "failing query"
-        handler.on_chain_error(Exception("LLM timeout"))
+        handler.on_chain_error(Exception("LLM timeout"), run_id=run_id)
         assert handler._query == ""
