@@ -17,6 +17,7 @@ from fastapi import FastAPI, Header, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 
+from ragcompliance.auth import init_sso
 from ragcompliance.billing import PLANS, BillingManager
 from ragcompliance.config import RAGComplianceConfig
 from ragcompliance.storage import AuditStorage
@@ -39,6 +40,9 @@ app.add_middleware(
 config = RAGComplianceConfig.from_env()
 storage = AuditStorage(config)
 billing = BillingManager.from_env()
+
+# Optional OIDC SSO. No-op when env vars are unset so local dev stays open.
+sso = init_sso(app)
 
 
 # ------------------------------------------------------------------ #

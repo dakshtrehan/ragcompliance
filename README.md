@@ -196,6 +196,25 @@ Set `RAGCOMPLIANCE_SLACK_WEBHOOK_URL` to a Slack incoming-webhook URL (or any co
 
 Alerts post on a separate daemon worker with a bounded queue, so Slack outages can't back-pressure your chain. When the queue fills, alerts drop with a log warning. Set `RAGCOMPLIANCE_SLACK_DASHBOARD_URL` to include a `View in dashboard` link in each payload.
 
+## SSO on the dashboard
+
+The dashboard ships wide open by default so local dev stays frictionless. Set four env vars and SSO turns on via standards OIDC discovery — Google Workspace, Okta, Auth0, Microsoft Entra, Authentik all just work.
+
+```bash
+pip install "ragcompliance[dashboard,sso]"
+```
+
+```bash
+RAGCOMPLIANCE_OIDC_ISSUER=https://accounts.google.com
+RAGCOMPLIANCE_OIDC_CLIENT_ID=your-client-id
+RAGCOMPLIANCE_OIDC_CLIENT_SECRET=your-client-secret
+RAGCOMPLIANCE_OIDC_REDIRECT_URI=https://dash.example.com/auth/callback
+RAGCOMPLIANCE_OIDC_ALLOWED_DOMAINS=acme.com,acme.co.uk   # optional allowlist
+RAGCOMPLIANCE_SESSION_SECRET=$(python -c "import secrets; print(secrets.token_urlsafe(48))")
+```
+
+Once wired on, every dashboard route except `/health`, `/login`, `/auth/callback`, `/logout`, and `/stripe/webhook` requires a signed-in session. Browsers get a 302 redirect to `/login`; API clients get 401 so scripted access surfaces cleanly. The allowed domains list is optional — leave it blank to permit any email that signs in through the IdP, or lock down to a corporate domain.
+
 ## SOC 2 evidence
 
 Most compliance teams cannot sign off on a RAG pipeline without a written trail of what was retrieved, what was answered, and proof that the trail hasn't been tampered with. The built-in evidence generator produces a Markdown report mapped to the Trust Services Criteria controls that RAGCompliance actually has data for (CC6.1, CC7.2, CC8.1, A1.1, C1.1), including a signature-verified sample an auditor can spot-check.
@@ -267,7 +286,7 @@ pytest -v
 - [x] Async audit writes (fire-and-forget, bounded-queue worker, atexit drain)
 - [x] Slack alerts for anomalous queries (zero chunks, low similarity, slow, errored)
 - [x] SOC 2 report template generator
-- [ ] SSO (SAML / OIDC) on the dashboard
+- [x] SSO (OIDC) on the dashboard
 
 ## License
 
