@@ -97,7 +97,24 @@ class WorkspaceSubscription:
                 return None
             if isinstance(v, datetime):
                 return v
-            return datetime.fromisoformat(str(v).replace("Z", "+00:00"))
+            s = str(v).replace("Z", "+00:00")
+            # PostgREST emits variable microsecond precision (e.g. 5 digits).
+            # Python 3.10's fromisoformat requires 0, 3, or 6 digits of us, so
+            # normalize the fractional-second part to 6 digits before parsing.
+            try:
+                return datetime.fromisoformat(s)
+            except ValueError:
+                import re
+                m = re.match(r"^(.*?\.)(\d+)(.*)$", s)
+                if m:
+                    prefix, frac, tail = m.groups()
+                    frac = (frac + "000000")[:6]
+                    s = f"{prefix}{frac}{tail}"
+                    try:
+                        return datetime.fromisoformat(s)
+                    except ValueError:
+                        return None
+                return None
 
         return cls(
             workspace_id=row["workspace_id"],

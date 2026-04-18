@@ -36,6 +36,12 @@ class RAGComplianceHandler(BaseCallbackHandler):
     signs everything with SHA-256, and persists to Supabase.
     """
 
+    # Propagate exceptions raised inside our callback methods instead of
+    # swallowing them. Required so the quota-exceeded RuntimeError raised in
+    # on_chain_start actually blocks the chain rather than being logged and
+    # ignored by LangChain's default observability behavior.
+    raise_error = True
+
     def __init__(
         self,
         config: RAGComplianceConfig | None = None,
@@ -61,7 +67,11 @@ class RAGComplianceHandler(BaseCallbackHandler):
         else:
             self.billing = billing
 
-        # State accumulated across callback events in one chain run
+        # State accumulated across callback events in one chain run.
+        # LCEL pipelines fire on_chain_start/on_chain_end for EVERY sub-runnable,
+        # so we latch onto the outermost chain via run_id/parent_run_id and ignore
+        # intermediate events.
+        self._root_run_id: Any = None
         self._query: str = ""
         self._chunks: list[RetrievedChunk] = []
         self._llm_answer: str = ""
@@ -73,14 +83,18 @@ class RAGComplianceHandler(BaseCallbackHandler):
     # ------------------------------------------------------------------ #
 
     def on_chain_start(
-        self, serialized: dict[str, Any], inputs: dict[str, Any], **kwargs: Any
+        self, serialized: dict[str, Any], inputs: Any, **kwargs: Any
     ) -> None:
+        # LCEL fires this for every sub-runnable. Only latch onto the outermost
+        # one (parent_run_id is None) and ignore the rest — otherwise we'd
+        # overwrite query/answer state mid-chain and save a half-built record.
+        parent_run_id = kwargs.get("parent_run_id")
+        if self._root_run_id is not None or parent_run_id is not None:
+            return
+
+        self._root_run_id = kwargs.get("run_id")
         self._start_time = time.time()
-        # Capture whatever looks like the user query
-        for key in ("query", "question", "input", "human_input"):
-            if key in inputs:
-                self._query = str(inputs[key])
-                break
+        self._query = self._coerce_query(inputs)
 
         # Soft quota check — log when over, hard-block only when enforce_quota=True.
         if self.billing is not None:
@@ -134,13 +148,17 @@ class RAGComplianceHandler(BaseCallbackHandler):
     # Chain end — build, sign, and persist the audit record               #
     # ------------------------------------------------------------------ #
 
-    def on_chain_end(self, outputs: dict[str, Any], **kwargs: Any) -> None:
-        # If we didn't catch the answer from on_llm_end, try chain outputs
+    def on_chain_end(self, outputs: Any, **kwargs: Any) -> None:
+        # Only finalize when the OUTERMOST chain ends. Every inner runnable
+        # also fires on_chain_end; ignoring those keeps us from saving an
+        # empty record before the LLM has even run.
+        run_id = kwargs.get("run_id")
+        if self._root_run_id is None or run_id != self._root_run_id:
+            return
+
+        # If we didn't catch the answer from on_llm_end, try chain outputs.
         if not self._llm_answer:
-            for key in ("answer", "result", "output", "response"):
-                if key in outputs:
-                    self._llm_answer = str(outputs[key])
-                    break
+            self._llm_answer = self._coerce_answer(outputs)
 
         latency_ms = int((time.time() - self._start_time) * 1000)
         signature = self._sign_chain()
@@ -186,12 +204,48 @@ class RAGComplianceHandler(BaseCallbackHandler):
         return hashlib.sha256(raw.encode()).hexdigest()
 
     def _reset(self) -> None:
+        self._root_run_id = None
         self._query = ""
         self._chunks = []
         self._llm_answer = ""
         self._model_name = ""
         self._start_time = time.time()
 
+    def _coerce_query(self, inputs: Any) -> str:
+        """LCEL hands us dicts, strings, lists of messages, or BaseMessages.
+        Normalize to a single query string."""
+        if isinstance(inputs, str):
+            return inputs
+        if isinstance(inputs, dict):
+            for key in ("query", "question", "input", "human_input", "prompt"):
+                if key in inputs and inputs[key] is not None:
+                    return str(inputs[key])
+            # Fallback: stringify the whole dict so we at least have something.
+            return json.dumps(inputs, default=str)[:2000]
+        # BaseMessage, list of messages, or anything else — stringify.
+        content = getattr(inputs, "content", None)
+        if isinstance(content, str):
+            return content
+        return str(inputs)[:2000]
+
+    def _coerce_answer(self, outputs: Any) -> str:
+        """Same idea as _coerce_query but for the chain's final output."""
+        if isinstance(outputs, str):
+            return outputs
+        if isinstance(outputs, dict):
+            for key in ("answer", "result", "output", "response", "text"):
+                if key in outputs and outputs[key] is not None:
+                    return str(outputs[key])
+            return json.dumps(outputs, default=str)[:4000]
+        content = getattr(outputs, "content", None)
+        if isinstance(content, str):
+            return content
+        return str(outputs)[:4000]
+
     def on_chain_error(self, error: BaseException, **kwargs: Any) -> None:
-        logger.error(f"RAGCompliance: Chain error — {error}")
-        self._reset()
+        # Only clear state if the OUTERMOST chain errored, so retries on
+        # intermediate runnables don't wipe accumulated audit state.
+        run_id = kwargs.get("run_id")
+        if self._root_run_id is not None and run_id == self._root_run_id:
+            logger.error(f"RAGCompliance: Chain error — {error}")
+            self._reset()
