@@ -35,6 +35,20 @@ class RAGComplianceHandler(BaseCallbackHandler):
     LangChain callback handler that captures the full RAG chain —
     query, retrieved chunks with scores and sources, and LLM answer —
     signs everything with SHA-256, and persists to Supabase.
+
+    Thread safety
+    -------------
+    This handler accumulates per-run state on the instance
+    (``_root_run_id``, ``_query``, ``_chunks``, ``_llm_answer``,
+    ``_model_name``, ``_start_time``) and is therefore NOT safe to share
+    across concurrent chain invocations. Create one handler per chain
+    invocation, per thread, or per async task. Sharing a single instance
+    across concurrent ``chain.invoke`` / ``chain.ainvoke`` calls will
+    interleave events from different runs and produce corrupted audit
+    records.
+
+    The configured ``AuditStorage``, ``BillingManager``, and
+    ``SlackAlerter`` objects are safe to share across handler instances.
     """
 
     # Propagate exceptions raised inside our callback methods instead of

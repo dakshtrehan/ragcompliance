@@ -106,6 +106,8 @@ Settings.callback_manager = CallbackManager([handler])
 response = query_engine.query("What does section 4.2 say?")
 ```
 
+> **Thread safety.** Handlers accumulate per-run state on the instance. Create one handler per chain invocation, per thread, or per async task — don't share a single handler across concurrent `invoke` / `ainvoke` calls.
+
 Every invocation writes an audit record like this:
 
 ```json

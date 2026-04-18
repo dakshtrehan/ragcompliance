@@ -50,6 +50,18 @@ class LlamaIndexRAGComplianceHandler(_LIBase):  # type: ignore[misc]
     """
     LlamaIndex callback that mirrors the LangChain audit capture:
     query -> retrieved chunks -> LLM answer -> SHA-256 chain signature.
+
+    Thread safety
+    -------------
+    Like the LangChain handler, this accumulates per-query state on the
+    instance (``_query``, ``_chunks``, ``_llm_answer``, ``_model_name``,
+    ``_start_time``) and is NOT safe to share across concurrent query
+    engines. Create one handler per query engine, per thread, or per
+    async task. Sharing a single instance across concurrent queries will
+    interleave events and produce corrupted audit records.
+
+    The configured ``AuditStorage``, ``BillingManager``, and
+    ``SlackAlerter`` objects are safe to share across handler instances.
     """
 
     def __init__(
