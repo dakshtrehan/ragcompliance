@@ -196,6 +196,35 @@ Set `RAGCOMPLIANCE_SLACK_WEBHOOK_URL` to a Slack incoming-webhook URL (or any co
 
 Alerts post on a separate daemon worker with a bounded queue, so Slack outages can't back-pressure your chain. When the queue fills, alerts drop with a log warning. Set `RAGCOMPLIANCE_SLACK_DASHBOARD_URL` to include a `View in dashboard` link in each payload.
 
+## SOC 2 evidence
+
+Most compliance teams cannot sign off on a RAG pipeline without a written trail of what was retrieved, what was answered, and proof that the trail hasn't been tampered with. The built-in evidence generator produces a Markdown report mapped to the Trust Services Criteria controls that RAGCompliance actually has data for (CC6.1, CC7.2, CC8.1, A1.1, C1.1), including a signature-verified sample an auditor can spot-check.
+
+```bash
+python -m ragcompliance.soc2 \
+  --workspace acme-prod \
+  --start 2026-01-01 \
+  --end 2026-03-31 \
+  --sample 10 --seed 42 \
+  --out acme-q1-2026-evidence.md
+```
+
+The report pulls records straight from the `rag_audit_logs` table, computes integrity stats (signed vs unsigned, unique sessions, avg latency, models observed), recomputes the SHA-256 signature on a random sample, and renders the control matrix and methodology section. It is not itself a SOC 2 attestation (only a licensed auditor can issue one) but it cuts the audit-prep back-and-forth from weeks to minutes.
+
+Programmatic access is the same pipeline without argparse:
+
+```python
+from ragcompliance.soc2 import generate_report
+
+md = generate_report(
+    workspace_id="acme-prod",
+    start="2026-01-01",
+    end="2026-03-31",
+    sample_size=10,
+    seed=42,
+)
+```
+
 ## Why RAGCompliance
 
 | Problem | RAGCompliance |
@@ -237,7 +266,7 @@ pytest -v
 - [x] Fail-closed quota enforcement (`RAGCOMPLIANCE_ENFORCE_QUOTA=true`)
 - [x] Async audit writes (fire-and-forget, bounded-queue worker, atexit drain)
 - [x] Slack alerts for anomalous queries (zero chunks, low similarity, slow, errored)
-- [ ] SOC 2 report template generator
+- [x] SOC 2 report template generator
 - [ ] SSO (SAML / OIDC) on the dashboard
 
 ## License
