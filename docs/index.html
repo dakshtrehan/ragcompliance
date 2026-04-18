@@ -815,7 +815,7 @@
     <li><a href="#capture">What it captures</a></li>
     <li><a href="#integrate">Integrate</a></li>
     <li><a href="#capabilities">Capabilities</a></li>
-    <li><a href="#pricing">Pricing</a></li>
+    <li><a href="#selfhost">Self-host</a></li>
     <li><a href="docs.html">Docs</a></li>
   </ul>
   <a class="cta" href="https://github.com/dakshtrehan/ragcompliance" target="_blank" rel="noopener">
@@ -1067,8 +1067,8 @@ response = query_engine.query(<span class="str">"Does §4.2 cover indemnificatio
         </article>
         <article class="cap">
           <div class="cap-num">06</div>
-          <h4>Stripe billing + quota</h4>
-          <p>Two-tier pricing wired in. Period-rollover via Stripe webhook with a self-healing fallback so a dropped webhook can't lock a workspace out.</p>
+          <h4>Stripe billing + quota (reference implementation)</h4>
+          <p>Self-hostable paid-tier UI for operators who want to run RAGCompliance as an internal product and meter downstream users. Period-rollover via Stripe webhook with a self-healing fallback so a dropped webhook can't lock a workspace out. Not a paid tier of this project.</p>
         </article>
         <article class="cap">
           <div class="cap-num">07</div>
@@ -1089,50 +1089,22 @@ response = query_engine.query(<span class="str">"Does §4.2 cover indemnificatio
     </div>
   </section>
 
-  <!-- ─── PRICING ─── -->
-  <section id="pricing">
+  <!-- ─── SELF-HOST ─── -->
+  <section id="selfhost">
     <div class="wrap">
-      <div class="section-tag">05 · Pricing</div>
-      <h2 class="section-head">Flat tiers.<br>Query metering <em>baked in.</em></h2>
+      <div class="section-tag">05 · Self-host</div>
+      <h2 class="section-head">Self-host. <em>Free forever.</em></h2>
       <p class="section-lede">
-        Every plan includes the full handler, dashboard, SOC 2 evidence export, async writes, and Slack alerts. Enterprise unlocks SSO, unlimited audit retention, and uncapped queries. Self-host the dashboard or let us operate it — your choice, same package.
+        <strong>ragcompliance</strong> is MIT-licensed middleware. Clone it, <span class="kbd">pip install</span> it, point it at your Supabase, and every feature on this page is yours. No paid tier, no call-home, no telemetry, no per-seat fees.
       </p>
-
-      <div class="pricing">
-        <div class="plan">
-          <h3>Team</h3>
-          <div class="price"><sup>$</sup>49</div>
-          <div class="price-sub">per month · billed via Stripe</div>
-          <ul>
-            <li>10,000 audited queries per month</li>
-            <li>LangChain + LlamaIndex handlers</li>
-            <li>CSV + JSON export</li>
-            <li>SOC 2 evidence generator</li>
-            <li>Slack anomaly alerts</li>
-            <li>Email support</li>
-          </ul>
-          <a class="plan-cta" href="docs.html#billing">
-            <span>Wire up billing</span>
-            <span>→</span>
-          </a>
-        </div>
-        <div class="plan featured">
-          <h3>Enterprise</h3>
-          <div class="price"><sup>$</sup>199</div>
-          <div class="price-sub">per month · billed via Stripe</div>
-          <ul>
-            <li>Unlimited audited queries</li>
-            <li>OIDC SSO (any IdP)</li>
-            <li>Custom audit retention</li>
-            <li>Priority review of SOC 2 drafts</li>
-            <li>Private deployment guidance</li>
-            <li>Direct engineering support</li>
-          </ul>
-          <a class="plan-cta" href="mailto:daksh.trehan@hotmail.com?subject=ragcompliance%20Enterprise">
-            <span>Talk to the author</span>
-            <span>→</span>
-          </a>
-        </div>
+      <p class="section-lede" style="margin-top: 0.75rem;">
+        If you'd rather not run it yourself, I offer a few kinds of paid help <em>around</em> the project — integration reviews, SOC 2 evidence prep, custom features on contract, and an operated dashboard under your own domain. These are engagements with the author, not a locked tier of the codebase.
+      </p>
+      <div style="margin-top: 2rem;">
+        <a class="plan-cta" href="mailto:daksh.trehan@hotmail.com?subject=RAGCompliance" style="display: inline-flex;">
+          <span>Email the author</span>
+          <span>→</span>
+        </a>
       </div>
     </div>
   </section>
@@ -1151,7 +1123,7 @@ response = query_engine.query(<span class="str">"Does §4.2 cover indemnificatio
         <div><span class="marker">✓</span><span>LlamaIndex callback handler (SYNTHESIZE-based)</span><span class="tag">v0.1.0</span></div>
         <div><span class="marker">✓</span><span>Supabase persistence with row-level security</span><span class="tag">v0.1.0</span></div>
         <div><span class="marker">✓</span><span>Dashboard exports: CSV / JSON with filters</span><span class="tag">v0.1.0</span></div>
-        <div><span class="marker">✓</span><span>Stripe billing + quota metering</span><span class="tag">v0.1.1</span></div>
+        <div><span class="marker">✓</span><span>Stripe billing + quota metering (reference implementation, optional)</span><span class="tag">v0.1.1</span></div>
         <div><span class="marker">✓</span><span>Period-rollover with self-healing fallback</span><span class="tag">v0.1.1</span></div>
         <div><span class="marker">✓</span><span>Fail-closed quota enforcement</span><span class="tag">v0.1.2</span></div>
         <div><span class="marker">✓</span><span>Async audit writes (bounded queue, atexit drain)</span><span class="tag">v0.1.3</span></div>
@@ -1179,6 +1151,10 @@ response = query_engine.query(<span class="str">"Does §4.2 cover indemnificatio
           <span>Full documentation</span>
           <span class="arrow">→</span>
         </a>
+        <a class="secondary" href="mailto:daksh.trehan@hotmail.com?subject=RAGCompliance">
+          <span>Email the author</span>
+          <span class="arrow">→</span>
+        </a>
       </div>
     </div>
   </section>
@@ -1198,7 +1174,7 @@ response = query_engine.query(<span class="str">"Does §4.2 cover indemnificatio
           <li><a href="#capture">What it captures</a></li>
           <li><a href="#integrate">Integrate</a></li>
           <li><a href="#capabilities">Capabilities</a></li>
-          <li><a href="#pricing">Pricing</a></li>
+          <li><a href="#selfhost">Self-host</a></li>
         </ul>
       </div>
       <div>
