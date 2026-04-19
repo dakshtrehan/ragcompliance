@@ -4,6 +4,7 @@
 [![CI](https://github.com/dakshtrehan/ragcompliance/actions/workflows/ci.yml/badge.svg)](https://github.com/dakshtrehan/ragcompliance/actions/workflows/ci.yml)
 [![Python](https://img.shields.io/pypi/pyversions/ragcompliance.svg)](https://pypi.org/project/ragcompliance/)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Downloads](https://static.pepy.tech/badge/ragcompliance)](https://pepy.tech/project/ragcompliance) [![Downloads/month](https://static.pepy.tech/badge/ragcompliance/month)](https://pepy.tech/project/ragcompliance)
 
 > Audit trail middleware for RAG pipelines in regulated industries.
 
