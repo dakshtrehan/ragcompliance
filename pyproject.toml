@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "ragcompliance"
-version = "0.1.6"
+version = "0.1.7"
 description = "Audit trail middleware for RAG pipelines in regulated industries"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -45,6 +45,11 @@ Homepage = "https://www.dakshtrehan.com/ragcompliance/"
 Documentation = "https://www.dakshtrehan.com/ragcompliance/docs.html"
 Repository = "https://github.com/dakshtrehan/ragcompliance"
 Issues = "https://github.com/dakshtrehan/ragcompliance/issues"
+Changelog = "https://github.com/dakshtrehan/ragcompliance/blob/main/CHANGELOG.md"
+
+[project.scripts]
+ragcompliance-selftest = "ragcompliance.selftest:main"
+ragcompliance-soc2 = "ragcompliance.soc2:_main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["ragcompliance"]

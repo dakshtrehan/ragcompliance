@@ -6,6 +6,78 @@ The format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.
 
 ## [Unreleased]
 
+## [0.1.7] — 2026-04-19
+
+This release is a credibility and polish pass. No handler behaviour
+changes. The library surface, signatures, and audit semantics are
+identical to 0.1.6; everything that moved is either packaging, docs,
+or operator tooling around the install.
+
+### Added
+- `SECURITY.md` at the repo root documenting supported versions, the
+  private disclosure channel (daksh.trehan@hotmail.com), response
+  SLAs, scope, and safe-harbour terms. Required for responsible
+  disclosure and for landing a GitHub Security Advisory.
+- `ragcompliance-selftest` console script (new module
+  `ragcompliance.selftest`) that verifies an install is wired
+  correctly: import + version readback, optional extras probe
+  (supabase, langchain_core, llama_index_core, fastapi, authlib),
+  required env vars for non-dev-mode operation,
+  `RAGComplianceConfig.from_env()` load, and a dev-mode storage
+  round-trip that confirms SHA-256 signature recomputation matches
+  what was stored. Red / yellow / green severity, exits non-zero on
+  red failures, `--json` for CI pipelines, `--dev-mode` to force the
+  stdout path on a fresh machine.
+- `ragcompliance-soc2` console script wired to the existing
+  `ragcompliance.soc2._main` entry point. Operators no longer need to
+  know the module path to generate an evidence report; it is now a
+  flat CLI.
+- Docs site FAQ section (six questions: LangSmith delta, PHI / PII,
+  legal signature, encryption, Supabase-only, Haystack / DSPy).
+  Answers the questions the first wave of readers asked by email
+  rather than forcing everyone to find the answer in the source.
+- Comparison strip on the landing page: "Works with", "Complements",
+  "Storage". Disambiguates the stack position before a reader
+  scrolls to the problem statement, so LangSmith users stop treating
+  this as a competitor.
+- Billing reference-implementation callout in the docs. The Stripe
+  plans and prices shipped in `ragcompliance.billing` are a
+  ready-to-run reference operators can fork into their own billing
+  layer, not a paid tier of this library. This was already true;
+  the callout makes it unambiguous.
+- Changelog URL in `[project.urls]` and a footer link on the landing
+  page so readers have a one-click path to per-release notes.
+
+### Changed
+- Em-dash sweep across `README.md`, `docs/index.html`, and
+  `docs/docs.html`. All `—` (U+2014) and `–` (U+2013) characters in
+  prose have been replaced with semicolons, parentheses, colons, or
+  sentence splits. Zero dashes remain across the three surfaces.
+- Landing page now uses dynamic shields.io badges for PyPI version
+  and GitHub Actions CI status instead of hardcoded `v0.1.4` / `145
+  tests` strings. Every future release updates the badges
+  automatically and removes a class of stale-version bugs.
+- Landing page test-count references updated from 126 / 145 to 152
+  (current suite). Pilot-customer language removed; replaced with
+  "power user" where appropriate. Testimonial quotes reframed as
+  illustrative customer-question archetypes ("the
+  audit-reconstruction ask", "the evidence-shape ask", "the
+  answer-drift ask") with a lede that names them as the questions
+  compliance, internal audit, and GRC teams actually bring.
+- "40 to 60 percent of RAG projects never reach production" stat
+  softened to "A lot of RAG projects stall before production". The
+  original number is widely cited but not sourced to a study the
+  author can defend in an auditor conversation, so it's out.
+- Dashboard mockup on the landing page now carries an `example /
+  mock data` label and an `aria-label` so no reader mistakes the
+  screenshot for live production data.
+- Example `model_name` in `README.md` unified to `gpt-4o-mini`
+  everywhere (was a mix of `gpt-4` and `gpt-4o-mini`), matching the
+  most common starter model in the current OpenAI pricing tier.
+
+### Internal
+- None.
+
 ## [0.1.6] — 2026-04-19
 
 ### Changed
@@ -210,7 +282,8 @@ The format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.
 - `RAGComplianceConfig` with `from_env()` and sensible defaults so the
   middleware works out of the box in dev.
 
-[Unreleased]: https://github.com/dakshtrehan/ragcompliance/compare/v0.1.6...HEAD
+[Unreleased]: https://github.com/dakshtrehan/ragcompliance/compare/v0.1.7...HEAD
+[0.1.7]: https://github.com/dakshtrehan/ragcompliance/releases/tag/v0.1.7
 [0.1.6]: https://github.com/dakshtrehan/ragcompliance/releases/tag/v0.1.6
 [0.1.5]: https://github.com/dakshtrehan/ragcompliance/releases/tag/v0.1.5
 [0.1.4]: https://github.com/dakshtrehan/ragcompliance/releases/tag/v0.1.4
