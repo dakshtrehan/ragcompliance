@@ -163,6 +163,33 @@ class RAGComplianceHandler(BaseCallbackHandler):
             current = parent
         return None
 
+    def _register_descendant(
+        self, run_id: Any, parent_run_id: Any
+    ) -> None:
+        """Track a child ``run_id`` under its parent so later ``*_end``
+        events can resolve back to the correct root audit state.
+
+        Called from every ``on_*_start`` callback that fires for an inner
+        runnable (chain, retriever, LLM, chat model, tool, ...). Without
+        this, a child's ``run_id`` never lands in ``_run_parents`` and
+        ``_resolve_root`` walks off the end, silently dropping whatever
+        that child produced from the audit record.
+
+        No-op when either id is missing or when the parent isn't
+        traceable to a tracked root (e.g. callback fired for a runnable
+        whose root chain never started, or whose root has already
+        finished). Caller must NOT hold ``self._lock``.
+        """
+        if run_id is None or parent_run_id is None:
+            return
+        with self._lock:
+            self._run_parents[run_id] = parent_run_id
+            root_id = self._resolve_root(parent_run_id)
+            if root_id is not None:
+                root_state = self._runs.get(root_id)
+                if root_state is not None:
+                    root_state.descendants.add(run_id)
+
     def _enforce_pending_cap_locked(self) -> None:
         """Evict oldest root runs if we're over the soft cap. Caller holds
         the lock."""
@@ -199,15 +226,7 @@ class RAGComplianceHandler(BaseCallbackHandler):
             # Inner LCEL sub-runnable — record the parent mapping so later
             # retriever/llm events can resolve to the correct root, and add
             # this run_id to the root's descendants set for O(1) cleanup.
-            if run_id is None:
-                return
-            with self._lock:
-                self._run_parents[run_id] = parent_run_id
-                root_id = self._resolve_root(parent_run_id)
-                if root_id is not None:
-                    root_state = self._runs.get(root_id)
-                    if root_state is not None:
-                        root_state.descendants.add(run_id)
+            self._register_descendant(run_id, parent_run_id)
             return
 
         # Root chain starting. Create fresh per-run state.
