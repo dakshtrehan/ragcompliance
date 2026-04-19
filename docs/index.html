@@ -3,6 +3,12 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+<!-- Security headers (meta fallback; HSTS / Permissions-Policy / X-Frame-Options require Cloudflare Transform Rules at the edge) -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://img.shields.io; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: https://img.shields.io https://static.pepy.tech https://raw.githubusercontent.com; font-src 'self' https://fonts.gstatic.com; base-uri 'self'; form-action 'self'" />
+<meta http-equiv="X-Content-Type-Options" content="nosniff" />
+<meta name="referrer" content="strict-origin-when-cross-origin" />
+
 <title>ragcompliance: audit trail middleware for RAG in regulated industries</title>
 <meta name="description" content="Drop-in LangChain and LlamaIndex middleware that logs, signs, and surfaces every retrieval and generation chain. Built for compliance teams in finance, healthcare, legal, and insurance." />
 
