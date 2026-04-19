@@ -6,6 +6,40 @@ The format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.
 
 ## [Unreleased]
 
+## [0.1.5] — 2026-04-19
+
+### Fixed
+- **Retrieved chunks silently dropped on `langchain-core >= 1.3.0`.**
+  The handler only overrode `on_chain_start`, so `on_retriever_start`
+  fired with a `parent_run_id` that was never recorded in
+  `_run_parents`. When the matching `on_retriever_end` fired,
+  `_resolve_root` could not walk up to the tracked root audit state and
+  every retrieved chunk was silently dropped from the record. The
+  record still saved with a valid SHA-256 signature but
+  `retrieved_chunks` was an empty list — a silent correctness bug for
+  any RAG chain using the recommended LCEL pattern. Earlier LangChain
+  versions happened to double-fire `on_chain_start` for retrievers so
+  `on_chain_start`'s parent registration covered them incidentally;
+  `langchain-core 1.3.0` tightened the callback surface and removed
+  that side channel. `on_retriever_start`, `on_llm_start`,
+  `on_chat_model_start`, and `on_tool_start` now all register their
+  `run_id`/`parent_run_id` pairs through a shared
+  `_register_descendant` helper so every `*_end` event can route back
+  to the correct audit state.
+
+### Added
+- 5 new tests in `tests/test_handler_retrieval.py`: LCEL baseline, batch
+  with per-invocation chunks, deep-nested retriever, `on_llm_start`
+  parent-registration guard, and 10-thread concurrent invoke with
+  chunks. All five fail against the v0.1.4 handler (verified by
+  monkey-patching the new overrides back to `BaseCallbackHandler`'s
+  no-ops), so they are real regression guards.
+
+### Changed
+- `on_chain_start` now delegates inner-runnable parent tracking to the
+  new `_register_descendant` helper. Pure refactor — same behavior as
+  v0.1.4 for the chain-start path.
+
 ## [0.1.4] — 2026-04-19
 
 ### Fixed
@@ -151,7 +185,8 @@ The format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.
 - `RAGComplianceConfig` with `from_env()` and sensible defaults so the
   middleware works out of the box in dev.
 
-[Unreleased]: https://github.com/dakshtrehan/ragcompliance/compare/v0.1.4...HEAD
+[Unreleased]: https://github.com/dakshtrehan/ragcompliance/compare/v0.1.5...HEAD
+[0.1.5]: https://github.com/dakshtrehan/ragcompliance/releases/tag/v0.1.5
 [0.1.4]: https://github.com/dakshtrehan/ragcompliance/releases/tag/v0.1.4
 [0.1.3]: https://github.com/dakshtrehan/ragcompliance/releases/tag/v0.1.3
 [0.1.2]: https://github.com/dakshtrehan/ragcompliance/releases/tag/v0.1.2
