@@ -45,6 +45,7 @@ RAGCOMPLIANCE_DEV_MODE=false                  # true = log to stdout, false = wr
 RAGCOMPLIANCE_ENFORCE_QUOTA=false             # true = raise RuntimeError when over limit
 RAGCOMPLIANCE_ASYNC_WRITES=true               # fire-and-forget audit inserts (default)
 RAGCOMPLIANCE_ASYNC_MAX_QUEUE=1000            # bounded in-memory buffer
+RAGCOMPLIANCE_MAX_PENDING_RUNS=10000          # soft cap on in-flight run state (batch / concurrent safety)
 ```
 
 `workspace_id` is how RAGCompliance isolates audit logs across tenants. One workspace per customer in a multi-tenant SaaS, or one per app for internal use. Row-level security keeps rows from leaking across workspaces.
@@ -106,7 +107,22 @@ Settings.callback_manager = CallbackManager([handler])
 response = query_engine.query("What does section 4.2 say?")
 ```
 
-> **Thread safety.** Handlers accumulate per-run state on the instance. Create one handler per chain invocation, per thread, or per async task — don't share a single handler across concurrent `invoke` / `ainvoke` calls.
+> **Thread safety.** As of v0.1.4, a single handler is safe to share across concurrent `chain.invoke` / `chain.ainvoke` calls and across `chain.batch([...])`. State is kept per root `run_id` behind a lock, so events from different invocations cannot interleave. If `on_chain_end` is never delivered for some runs (crashed worker, misconfigured callbacks), the oldest pending state is evicted once `RAGCOMPLIANCE_MAX_PENDING_RUNS` (default 10000) is exceeded.
+
+#### Batch support
+
+```python
+handler = RAGComplianceHandler(config=RAGComplianceConfig.from_env())
+
+# All three queries land as three separate audit records — one per invocation,
+# each with its own query, chunks, answer, and signature.
+answers = chain.batch(
+    [{"query": "q1"}, {"query": "q2"}, {"query": "q3"}],
+    config={"callbacks": [handler]},
+)
+```
+
+The same holds for `chain.abatch(...)` and for running `chain.invoke(...)` concurrently across threads or asyncio tasks with a shared handler.
 
 Every invocation writes an audit record like this:
 

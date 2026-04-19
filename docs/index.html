@@ -788,7 +788,7 @@
 
 <div class="strip">
   <div class="strip-inner">
-    <span>v0.1.3 on PyPI</span>
+    <span>v0.1.4 on PyPI</span>
     <span class="dot">●</span>
     <span>LangChain + LlamaIndex</span>
     <span class="dot">●</span>
@@ -808,7 +808,7 @@
   <a href="#top" class="mark">
     <span class="seal" aria-hidden="true"></span>
     <span>ragcompliance</span>
-    <span class="ver">v0.1.3</span>
+    <span class="ver">v0.1.4</span>
   </a>
   <ul>
     <li><a href="#problem">Why</a></li>
@@ -1034,16 +1034,16 @@ response = query_engine.query(<span class="str">"Does §4.2 cover indemnificatio
   <section id="capabilities">
     <div class="wrap">
       <div class="section-tag">04 · Capabilities</div>
-      <h2 class="section-head">What ships in v0.1.3.<br>All production-hardened. All <em>tested.</em></h2>
+      <h2 class="section-head">What ships in v0.1.4.<br>All production-hardened. All <em>tested.</em></h2>
       <p class="section-lede" style="margin-bottom: 48px;">
-        Every feature below exists because a compliance team, an SRE on-call, or a pilot customer asked for it. No vapor. 126 tests green.
+        Every feature below exists because a compliance team, an SRE on-call, or a pilot customer asked for it. No vapor. 145 tests green, including a dedicated batch and concurrency suite.
       </p>
 
       <div class="caps">
         <article class="cap">
           <div class="cap-num">01</div>
           <h4>Drop-in callback handlers</h4>
-          <p>LangChain LCEL-safe with outermost-chain latching. LlamaIndex via CallbackManager on SYNTHESIZE events. No forks, no wrappers, no rewrites.</p>
+          <p>LangChain LCEL-safe. <strong>Batch- and concurrency-safe as of v0.1.4</strong> — share one handler across <span class="kbd">chain.batch([...])</span> and concurrent <span class="kbd">chain.invoke()</span> calls. LlamaIndex via CallbackManager on SYNTHESIZE events.</p>
         </article>
         <article class="cap">
           <div class="cap-num">02</div>
@@ -1131,6 +1131,8 @@ response = query_engine.query(<span class="str">"Does §4.2 cover indemnificatio
         <div><span class="marker">✓</span><span>SOC 2 evidence report generator</span><span class="tag">v0.1.3</span></div>
         <div><span class="marker">✓</span><span>OIDC SSO on the dashboard</span><span class="tag">v0.1.3</span></div>
         <div><span class="marker">✓</span><span>Stripe live-mode readiness probe</span><span class="tag">v0.1.3</span></div>
+        <div><span class="marker">✓</span><span>Batch- and concurrency-safe shared handler (<span class="kbd">chain.batch</span>, threads, asyncio)</span><span class="tag">v0.1.4</span></div>
+        <div><span class="marker">✓</span><span>Defensive <span class="kbd">storage.save()</span> wrapping — a custom backend that raises can't take the chain down</span><span class="tag">v0.1.4</span></div>
         <div class="planned"><span class="marker">○</span><span>BYO object storage for source documents (S3, GCS, R2)</span><span class="tag">planned</span></div>
         <div class="planned"><span class="marker">○</span><span>PII redaction policies (email, phone, custom regex) per workspace</span><span class="tag">planned</span></div>
       </div>
@@ -1200,7 +1202,7 @@ response = query_engine.query(<span class="str">"Does §4.2 cover indemnificatio
     </div>
     <div class="bottom">
       <div>© 2026 Daksh Trehan · MIT Licensed</div>
-      <div>Built in public. v0.1.3 · 126 tests green.</div>
+      <div>Built in public. v0.1.4 · 145 tests green.</div>
     </div>
   </div>
 </footer>

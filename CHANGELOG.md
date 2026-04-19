@@ -6,10 +6,69 @@ The format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.
 
 ## [Unreleased]
 
+## [0.1.4] — 2026-04-19
+
+### Fixed
+- **`chain.batch([q1, q2, ...])` correctness.** The handler previously
+  kept per-invocation state on the instance (`_root_run_id`, `_query`,
+  `_chunks`, `_llm_answer`, `_model_name`, `_start_time`) and latched
+  onto the outermost chain via `_root_run_id is None`. Inside a
+  `batch()` call LangChain fires `on_chain_start` for every invocation
+  before any `on_chain_end`, so invocations 2..N were silently
+  ignored: the first query's record would be written with the last
+  query's answer and every other query was dropped. This is now fixed
+  — each root run gets its own `_RunState` keyed by `run_id` and all N
+  records are written with matching query/chunks/answer triples.
+- **Shared-handler thread safety.** A single `RAGComplianceHandler` is
+  now safe to share across concurrent `chain.invoke` / `chain.ainvoke`
+  calls. State lives in a `dict` keyed by root `run_id`, guarded by a
+  `threading.Lock`. Same fix applied to
+  `LlamaIndexRAGComplianceHandler`, which uses a `threading.local` to
+  route events to the right per-trace state.
+- **Defensive `storage.save()`.** The built-in Supabase storage
+  catches its own errors, but a user-supplied custom storage backend
+  could previously raise straight through the handler and take down
+  the host chain. `storage.save(record)` is now wrapped in
+  `try/except` in both handlers, with a `logger.error` that names the
+  session id and tells custom-backend authors to stop raising.
+
 ### Added
-- Thread-safety note on both handlers documenting that per-run state is
-  instance-local. Callers should create one handler per chain invocation /
-  task.
+- `RAGCOMPLIANCE_MAX_PENDING_RUNS` (default 10000): soft cap on the
+  number of in-flight root run states the handler will hold. When
+  exceeded (typically because `on_chain_end` was never delivered — a
+  crashed worker or misconfigured callbacks), the oldest pending state
+  is evicted with a single warning log, and descendant parent mappings
+  are dropped with it.
+- 10 new tests in `tests/test_handler_batch.py` covering batch 3
+  queries, concurrent 10 threads, nested LCEL saves-once, inner events
+  routing to root state, concurrent 20-thread invoke, interleaved
+  events, pending soft cap with descendant cleanup, storage.save
+  raising, junk env values, and a hot-path microbench guard.
+- 3 new tests in `tests/test_llamaindex_handler_trace.py` covering
+  concurrent traces, end_trace cleanup, and storage-raise containment.
+
+### Changed
+- Thread-safety note in the README now reads "safe to share" instead of
+  "one handler per invocation", with a `chain.batch` example and a
+  pointer to the soft-cap env var.
+
+## [0.1.3] — 2026-04-18
+
+### Added
+- Stripe live-mode readiness probe.
+  - `BillingManager.readiness()` returns a `BillingReadiness` dataclass
+    indicating `ready` / `warnings` / `errors`, detected Stripe mode
+    (`test` / `live` / `unknown`), and sanitized key-prefix hints.
+  - `/health/billing` endpoint returns `200` when ready, `503` otherwise,
+    with the same payload. Safe to scrape — no secrets leaked.
+- Operator-facing "Going live (Stripe)" runbook in the README covering
+  the four steps to cut over from test to live Stripe keys, including
+  the webhook secret swap and DNS/TLS sanity checks.
+- Landing page and docs site at
+  [www.dakshtrehan.com/ragcompliance](https://www.dakshtrehan.com/ragcompliance/),
+  shipped via GitHub Pages from `/docs`.
+- Thread-safety note on both handlers (superseded in v0.1.4 — the
+  handlers are now safe to share).
 - `AuditStorage.get_by_id(record_id, workspace_id=...)` for workspace-scoped
   single-record lookups backed by an indexed `.eq('id', ...)` Supabase query.
 - README subsection "What the signature covers" spelling out which fields
@@ -28,22 +87,6 @@ The format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.
 - Ruff lint: removed unused imports (`fastapi.FastAPI`, `os`,
   `authlib.integrations.starlette_client.OAuth`, `ragcompliance.auth`,
   `datetime.timedelta`, `unittest.mock.MagicMock`) and a spurious f-string.
-
-## [0.1.3] — 2026-04-18
-
-### Added
-- Stripe live-mode readiness probe.
-  - `BillingManager.readiness()` returns a `BillingReadiness` dataclass
-    indicating `ready` / `warnings` / `errors`, detected Stripe mode
-    (`test` / `live` / `unknown`), and sanitized key-prefix hints.
-  - `/health/billing` endpoint returns `200` when ready, `503` otherwise,
-    with the same payload. Safe to scrape — no secrets leaked.
-- Operator-facing "Going live (Stripe)" runbook in the README covering
-  the four steps to cut over from test to live Stripe keys, including
-  the webhook secret swap and DNS/TLS sanity checks.
-- Landing page and docs site at
-  [www.dakshtrehan.com/ragcompliance](https://www.dakshtrehan.com/ragcompliance/),
-  shipped via GitHub Pages from `/docs`.
 
 ## [0.1.2] — 2026-04
 
@@ -108,7 +151,8 @@ The format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.
 - `RAGComplianceConfig` with `from_env()` and sensible defaults so the
   middleware works out of the box in dev.
 
-[Unreleased]: https://github.com/dakshtrehan/ragcompliance/compare/v0.1.3...HEAD
+[Unreleased]: https://github.com/dakshtrehan/ragcompliance/compare/v0.1.4...HEAD
+[0.1.4]: https://github.com/dakshtrehan/ragcompliance/releases/tag/v0.1.4
 [0.1.3]: https://github.com/dakshtrehan/ragcompliance/releases/tag/v0.1.3
 [0.1.2]: https://github.com/dakshtrehan/ragcompliance/releases/tag/v0.1.2
 [0.1.1]: https://github.com/dakshtrehan/ragcompliance/releases/tag/v0.1.1
