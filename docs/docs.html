@@ -902,9 +902,11 @@ md = generate_report(
 
   <!-- ─── async ─── -->
   <h2 id="async">Async audit writes</h2>
+  <p>Handler overhead is under 1ms at p50 (~38µs measured in isolation on a clean hot path). End-to-end chain latency depends on your retriever, LLM, and prompt — the handler's contribution is a small constant added on top of whatever your chain does.</p>
+
   <p>Audit writes are fire-and-forget by default. <code>save()</code> enqueues the record onto a bounded in-memory queue and a single daemon worker drains it into Supabase, so the chain's hot path never blocks on audit I/O.</p>
 
-  <p>In benchmarks, per-chain overhead drops from roughly 1.2s (sync Supabase RTT) to well under 1ms (enqueue only) — a three to four order of magnitude improvement.</p>
+  <p>In benchmarks, per-chain audit-write overhead drops from roughly 1.2s (sync Supabase RTT) to well under 1ms (enqueue only) — a three to four order of magnitude improvement.</p>
 
   <p>If Supabase is unreachable, records buffer in memory up to <code>RAGCOMPLIANCE_ASYNC_MAX_QUEUE</code> (default 1000) and then drop with a log warning rather than leak memory. On normal process exit an <code>atexit</code> hook drains pending records within <code>RAGCOMPLIANCE_ASYNC_SHUTDOWN_TIMEOUT</code> seconds (default 5). You can also call <code>handler.storage.flush()</code> explicitly in tests or your own shutdown path.</p>
 

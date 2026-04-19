@@ -247,7 +247,9 @@ Programmatic callers get the same structure via `BillingManager.readiness()` ret
 
 ## Latency
 
-Audit writes are fire-and-forget by default. `save()` enqueues the record onto a bounded in-memory queue and a single daemon worker drains it into Supabase, so the chain's hot path never blocks on audit I/O. In benchmarks, per-chain overhead drops from roughly 1.2s (sync Supabase RTT) to well under 1ms (enqueue only), a three to four order of magnitude improvement.
+Handler overhead is under 1ms at p50 (~38µs measured in isolation on a clean hot path). End-to-end chain latency depends on your retriever, LLM, and prompt — the handler's contribution is a small constant added on top of whatever your chain does.
+
+Audit writes are fire-and-forget by default. `save()` enqueues the record onto a bounded in-memory queue and a single daemon worker drains it into Supabase, so the chain's hot path never blocks on audit I/O. In benchmarks, per-chain audit-write overhead drops from roughly 1.2s (sync Supabase RTT) to well under 1ms (enqueue only), a three to four order of magnitude improvement.
 
 If Supabase is unreachable, records buffer in memory up to `RAGCOMPLIANCE_ASYNC_MAX_QUEUE` (default 1000) and then drop with a log warning rather than leak memory. On normal process exit an `atexit` hook drains pending records within `RAGCOMPLIANCE_ASYNC_SHUTDOWN_TIMEOUT` seconds (default 5). You can also call `handler.storage.flush()` explicitly in tests or your own shutdown path. Set `RAGCOMPLIANCE_ASYNC_WRITES=false` if you need a strictly synchronous write (for example, tests that inspect storage mid-chain).
 

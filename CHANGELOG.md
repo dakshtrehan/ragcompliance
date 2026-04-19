@@ -6,6 +6,15 @@ The format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.
 
 ## [Unreleased]
 
+## [0.1.6] — 2026-04-19
+
+### Changed
+- README and docs site now distinguish "handler overhead in isolation"
+  (<1ms, ~38µs p50) from "end-to-end chain latency" (dominated by
+  retriever and LLM). No behavior change; the prior claim was correct
+  but ambiguous enough that a reader could misread the full-chain
+  number as the handler's contribution.
+
 ## [0.1.5] — 2026-04-19
 
 ### Fixed

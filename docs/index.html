@@ -854,6 +854,9 @@
             <div><strong>&lt;1ms</strong>handler overhead</div>
             <div><strong>MIT</strong>licensed</div>
           </div>
+          <p class="hero-footnote" style="margin-top: 14px; font-size: 12px; color: var(--ink-dim); max-width: 52ch; line-height: 1.55;">
+            Handler overhead measured in isolation (p50 ≈ 38µs on a clean hot path). Full-chain latency is dominated by your retriever and LLM; the handler adds a small constant on top.
+          </p>
         </div>
 
         <div class="ledger" aria-label="Sample audit ledger">
