@@ -264,6 +264,49 @@ class RAGComplianceHandler(BaseCallbackHandler):
                 logger.warning(msg)
 
     # ------------------------------------------------------------------ #
+    # Parent registration for non-chain runnables                          #
+    # ------------------------------------------------------------------ #
+    # LangChain fires on_retriever_start, on_llm_start, on_chat_model_start,
+    # and on_tool_start with their own fresh run_id and the parent chain's
+    # run_id as parent_run_id. Without these overrides the child run_id is
+    # never recorded in _run_parents, so the matching on_*_end event can't
+    # walk up to the root audit state and the event's payload (chunks, llm
+    # answer, tool output) is silently dropped.
+    #
+    # This became a visible correctness bug on langchain-core >=1.3.0 where
+    # retrievers stopped double-firing on_chain_start — the handler was
+    # accidentally relying on that old side channel in 0.1.4.
+
+    def on_retriever_start(
+        self, serialized: dict[str, Any], query: str, **kwargs: Any
+    ) -> None:
+        self._register_descendant(
+            kwargs.get("run_id"), kwargs.get("parent_run_id")
+        )
+
+    def on_llm_start(
+        self, serialized: dict[str, Any], prompts: list[str], **kwargs: Any
+    ) -> None:
+        self._register_descendant(
+            kwargs.get("run_id"), kwargs.get("parent_run_id")
+        )
+
+    def on_chat_model_start(
+        self, serialized: dict[str, Any], messages: Any, **kwargs: Any
+    ) -> None:
+        """LangChain's chat-model path; same routing need as on_llm_start."""
+        self._register_descendant(
+            kwargs.get("run_id"), kwargs.get("parent_run_id")
+        )
+
+    def on_tool_start(
+        self, serialized: dict[str, Any], input_str: str, **kwargs: Any
+    ) -> None:
+        self._register_descendant(
+            kwargs.get("run_id"), kwargs.get("parent_run_id")
+        )
+
+    # ------------------------------------------------------------------ #
     # Retriever capture                                                    #
     # ------------------------------------------------------------------ #
 
