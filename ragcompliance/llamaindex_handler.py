@@ -23,8 +23,11 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
+import threading
 import time
 import uuid
+from dataclasses import dataclass, field
 from typing import Any
 
 from .alerts import SlackAlerter
@@ -46,6 +49,29 @@ except Exception:  # pragma: no cover - optional dep path
     _LLAMA_AVAILABLE = False
 
 
+# Sentinel used when LlamaIndex passes trace_id=None (default single-trace
+# usage). Keyed on a stable value so concurrent None-trace calls from
+# different threads still collide (and the caller is then expected to use
+# distinct handler instances, which is the legacy behavior).
+_DEFAULT_TRACE = "__ragcompliance_default_trace__"
+
+
+@dataclass
+class _TraceState:
+    """Per-trace state for one LlamaIndex query lifecycle.
+
+    One of these lives in ``_traces`` keyed by ``trace_id`` while a trace
+    is active. This replaces the previous single instance-level buffer and
+    makes concurrent query engines on a shared handler correct.
+    """
+
+    query: str = ""
+    chunks: list[RetrievedChunk] = field(default_factory=list)
+    llm_answer: str = ""
+    model_name: str = ""
+    start_time: float = 0.0
+
+
 class LlamaIndexRAGComplianceHandler(_LIBase):  # type: ignore[misc]
     """
     LlamaIndex callback that mirrors the LangChain audit capture:
@@ -53,15 +79,12 @@ class LlamaIndexRAGComplianceHandler(_LIBase):  # type: ignore[misc]
 
     Thread safety
     -------------
-    Like the LangChain handler, this accumulates per-query state on the
-    instance (``_query``, ``_chunks``, ``_llm_answer``, ``_model_name``,
-    ``_start_time``) and is NOT safe to share across concurrent query
-    engines. Create one handler per query engine, per thread, or per
-    async task. Sharing a single instance across concurrent queries will
-    interleave events and produce corrupted audit records.
-
-    The configured ``AuditStorage``, ``BillingManager``, and
-    ``SlackAlerter`` objects are safe to share across handler instances.
+    This handler is safe to share across concurrent LlamaIndex query
+    engines. Per-trace state lives in a lock-guarded ``dict`` keyed by the
+    ``trace_id`` LlamaIndex passes into ``start_trace``/``end_trace``, so
+    events from different traces cannot interleave. The configured
+    ``AuditStorage``, ``BillingManager``, and ``SlackAlerter`` objects are
+    also safe to share.
     """
 
     def __init__(
@@ -104,16 +127,72 @@ class LlamaIndexRAGComplianceHandler(_LIBase):  # type: ignore[misc]
         else:
             self.alerter = alerter
 
-        self._query: str = ""
-        self._chunks: list[RetrievedChunk] = []
-        self._llm_answer: str = ""
-        self._model_name: str = ""
-        self._start_time: float = time.time()
+        # Per-trace state, keyed by trace_id. LlamaIndex calls
+        # start_trace/end_trace to bracket a query lifecycle; between them
+        # on_event_* fires without a trace_id. We use thread-local state
+        # to remember the active trace for the current thread, so a
+        # shared handler across threads stays correct.
+        self._traces: dict[Any, _TraceState] = {}
+        self._active = threading.local()
+        self._lock = threading.Lock()
+
+        try:
+            self._max_pending_traces = max(
+                1, int(os.getenv("RAGCOMPLIANCE_MAX_PENDING_RUNS", "10000"))
+            )
+        except ValueError:
+            self._max_pending_traces = 10000
+        self._pending_cap_warned = False
+
+    # ------------------------------------------------------------------ #
+    # Helpers                                                              #
+    # ------------------------------------------------------------------ #
+
+    def _trace_key(self, trace_id: Any) -> Any:
+        return trace_id if trace_id is not None else _DEFAULT_TRACE
+
+    def _enforce_pending_cap_locked(self) -> None:
+        if len(self._traces) <= self._max_pending_traces:
+            return
+        if not self._pending_cap_warned:
+            logger.warning(
+                "RAGCompliance: pending trace state exceeded "
+                "RAGCOMPLIANCE_MAX_PENDING_RUNS=%d; evicting oldest traces. "
+                "This usually means end_trace was not delivered for some "
+                "queries (crashed workers, misconfigured callbacks).",
+                self._max_pending_traces,
+            )
+            self._pending_cap_warned = True
+        while len(self._traces) > self._max_pending_traces:
+            victim_id, _ = next(iter(self._traces.items()))
+            self._traces.pop(victim_id, None)
+
+    def _current_trace_id(self) -> Any:
+        """The trace_id LlamaIndex most recently called start_trace with
+        on this thread. Falls back to _DEFAULT_TRACE so direct calls to
+        on_event_* without a surrounding trace still collect state."""
+        return getattr(self._active, "trace_id", _DEFAULT_TRACE)
+
+    def _current_state_locked(self) -> _TraceState | None:
+        """Return the _TraceState for the current thread's active trace,
+        or None if no trace is active. Caller holds the lock."""
+        return self._traces.get(self._current_trace_id())
+
+    # ------------------------------------------------------------------ #
+    # Trace lifecycle                                                      #
+    # ------------------------------------------------------------------ #
 
     # LlamaIndex calls these four methods on the handler.
     def start_trace(self, trace_id: str | None = None) -> None:
-        self._reset()
-        self._start_time = time.time()
+        key = self._trace_key(trace_id)
+        # Remember the active trace for the CURRENT THREAD so on_event_*
+        # can route to the right state even in concurrent usage.
+        self._active.trace_id = key
+        with self._lock:
+            self._traces[key] = _TraceState(start_time=time.time())
+            self._enforce_pending_cap_locked()
+
+        # Billing quota check runs outside the lock.
         if self.billing is not None:
             try:
                 within = self.billing.check_query_quota(self.config.workspace_id)
@@ -133,20 +212,44 @@ class LlamaIndexRAGComplianceHandler(_LIBase):  # type: ignore[misc]
         trace_id: str | None = None,
         trace_map: dict[str, list[str]] | None = None,
     ) -> None:
-        latency_ms = int((time.time() - self._start_time) * 1000)
-        signature = self._sign_chain()
+        key = self._trace_key(trace_id)
+        with self._lock:
+            state = self._traces.pop(key, None)
+        # Clear the thread-local pointer regardless — a subsequent
+        # start_trace will reset it.
+        if getattr(self._active, "trace_id", None) == key:
+            self._active.trace_id = None
+        if state is None:
+            return
+
+        latency_ms = int((time.time() - state.start_time) * 1000)
+        signature = self._sign_chain(state)
         record = AuditRecord(
             session_id=self.session_id,
             workspace_id=self.config.workspace_id,
-            query=self._query,
-            retrieved_chunks=self._chunks,
-            llm_answer=self._llm_answer,
-            model_name=self._model_name,
+            query=state.query,
+            retrieved_chunks=state.chunks,
+            llm_answer=state.llm_answer,
+            model_name=state.model_name,
             chain_signature=signature,
             latency_ms=latency_ms,
             extra=self.extra,
         )
-        self.storage.save(record)
+
+        # Defensive save: custom storage backends might raise. A compliance
+        # library must never take down the host chain because its own audit
+        # write failed.
+        try:
+            self.storage.save(record)
+        except Exception as e:
+            logger.error(
+                "RAGCompliance: storage.save raised (%s); dropping audit "
+                "record for session=%r. This should not normally happen — "
+                "the built-in Supabase storage catches its own errors. If "
+                "you wrote a custom storage backend, it must not raise.",
+                e, self.session_id,
+            )
+
         if self.billing is not None:
             try:
                 self.billing.increment_usage(self.config.workspace_id)
@@ -157,7 +260,6 @@ class LlamaIndexRAGComplianceHandler(_LIBase):  # type: ignore[misc]
                 self.alerter.maybe_alert(record)
             except Exception as e:
                 logger.debug(f"RAGCompliance: alerter.maybe_alert errored ({e})")
-        self._reset()
 
     def on_event_start(
         self,
@@ -168,10 +270,10 @@ class LlamaIndexRAGComplianceHandler(_LIBase):  # type: ignore[misc]
         **kwargs: Any,
     ) -> str:
         payload = payload or {}
-        # LlamaIndex emits a QUERY event at the start of a query engine call.
-        # Payload keys are EventPayload StrEnum values; string keys still match
-        # because StrEnum compares equal to its value, but prefer the enum when
-        # available for clarity and forward-compat.
+        # LlamaIndex doesn't pass trace_id into event callbacks — it
+        # brackets them with start_trace/end_trace on a per-thread basis.
+        # _current_state_locked() reads thread-local state set by
+        # start_trace to route the event to the right trace.
         if CBEventType and event_type == CBEventType.QUERY:
             q = None
             if EventPayload is not None:
@@ -179,7 +281,10 @@ class LlamaIndexRAGComplianceHandler(_LIBase):  # type: ignore[misc]
             if not q:
                 q = payload.get("query_str") or payload.get("query")
             if q:
-                self._query = str(q)
+                with self._lock:
+                    state = self._current_state_locked()
+                    if state is not None:
+                        state.query = str(q)
         return event_id or str(uuid.uuid4())
 
     def on_event_end(
@@ -200,13 +305,17 @@ class LlamaIndexRAGComplianceHandler(_LIBase):  # type: ignore[misc]
                 or payload.get("nodes")
                 or []
             )
+            new_chunks: list[RetrievedChunk] = []
             for i, node_with_score in enumerate(nodes):
                 # LlamaIndex yields NodeWithScore; attribute access is safest.
                 node = getattr(node_with_score, "node", node_with_score)
                 score = getattr(node_with_score, "score", None)
                 meta = getattr(node, "metadata", {}) or {}
-                content = getattr(node, "text", None) or getattr(node, "get_content", lambda: "")()
-                self._chunks.append(
+                content = (
+                    getattr(node, "text", None)
+                    or getattr(node, "get_content", lambda: "")()
+                )
+                new_chunks.append(
                     RetrievedChunk(
                         content=str(content),
                         source_url=str(
@@ -228,6 +337,10 @@ class LlamaIndexRAGComplianceHandler(_LIBase):  # type: ignore[misc]
                         },
                     )
                 )
+            with self._lock:
+                state = self._current_state_locked()
+                if state is not None:
+                    state.chunks.extend(new_chunks)
 
         elif event_type == CBEventType.LLM:
             # LLM end payload holds a CompletionResponse under EventPayload.COMPLETION
@@ -241,6 +354,7 @@ class LlamaIndexRAGComplianceHandler(_LIBase):  # type: ignore[misc]
                 )
             if completion is None:
                 completion = payload.get("completion") or payload.get("response")
+            answer = ""
             if completion is not None:
                 text = (
                     getattr(completion, "text", None)
@@ -248,18 +362,27 @@ class LlamaIndexRAGComplianceHandler(_LIBase):  # type: ignore[misc]
                     or str(completion)
                 )
                 answer = text.content if hasattr(text, "content") else str(text)
-                # Only overwrite if non-empty — protects multi-LLM-call flows
-                # where a refine pass might emit an empty continuation.
-                if answer:
-                    self._llm_answer = answer
-            # Try to pull model name from the serialized payload.
-            serialized = payload.get(EventPayload.SERIALIZED) if EventPayload is not None else None
+
+            model_name = ""
+            serialized = (
+                payload.get(EventPayload.SERIALIZED) if EventPayload is not None else None
+            )
             if not isinstance(serialized, dict):
                 serialized = payload.get("serialized")
             if isinstance(serialized, dict):
                 model = serialized.get("model") or serialized.get("model_name")
                 if model:
-                    self._model_name = str(model)
+                    model_name = str(model)
+
+            with self._lock:
+                state = self._current_state_locked()
+                if state is not None:
+                    # Only overwrite answer if non-empty — protects multi-LLM-call
+                    # flows where a refine pass might emit an empty continuation.
+                    if answer:
+                        state.llm_answer = answer
+                    if model_name:
+                        state.model_name = model_name
 
         elif event_type == CBEventType.SYNTHESIZE:
             # The synthesize event's end payload carries the FINAL Response
@@ -278,26 +401,23 @@ class LlamaIndexRAGComplianceHandler(_LIBase):  # type: ignore[misc]
                     or str(response)
                 )
                 if answer:
-                    self._llm_answer = str(answer)
+                    with self._lock:
+                        state = self._current_state_locked()
+                        if state is not None:
+                            state.llm_answer = str(answer)
 
     # ------------------------------------------------------------------ #
     # Helpers                                                              #
     # ------------------------------------------------------------------ #
 
-    def _sign_chain(self) -> str:
+    def _sign_chain(self, state: _TraceState) -> str:
         payload = {
-            "query": self._query,
+            "query": state.query,
             "chunks": [
                 {"content": c.content, "source_url": c.source_url, "chunk_id": c.chunk_id}
-                for c in self._chunks
+                for c in state.chunks
             ],
-            "answer": self._llm_answer,
+            "answer": state.llm_answer,
         }
         raw = json.dumps(payload, sort_keys=True, default=str)
         return hashlib.sha256(raw.encode()).hexdigest()
-
-    def _reset(self) -> None:
-        self._query = ""
-        self._chunks = []
-        self._llm_answer = ""
-        self._model_name = ""

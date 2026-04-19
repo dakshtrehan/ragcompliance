@@ -10,6 +10,7 @@ from langchain_core.documents import Document
 from langchain_core.outputs import Generation, LLMResult
 
 from ragcompliance import RAGComplianceConfig, RAGComplianceHandler
+from ragcompliance.handler import _RunState
 
 
 @pytest.fixture
@@ -22,28 +23,36 @@ def handler(dev_config):
     return RAGComplianceHandler(config=dev_config, session_id="test-session")
 
 
+def _start_root(handler, inputs, run_id=None):
+    """Start a root chain run and return its run_id."""
+    run_id = run_id or uuid.uuid4()
+    handler.on_chain_start({}, inputs, run_id=run_id)
+    return run_id
+
+
 class TestQueryCapture:
     def test_captures_query_key(self, handler):
-        handler.on_chain_start({}, {"query": "What is RAG?"})
-        assert handler._query == "What is RAG?"
+        rid = _start_root(handler, {"query": "What is RAG?"})
+        assert handler._runs[rid].query == "What is RAG?"
 
     def test_captures_question_key(self, handler):
-        handler.on_chain_start({}, {"question": "How does this work?"})
-        assert handler._query == "How does this work?"
+        rid = _start_root(handler, {"question": "How does this work?"})
+        assert handler._runs[rid].query == "How does this work?"
 
     def test_captures_input_key(self, handler):
-        handler.on_chain_start({}, {"input": "Explain compliance."})
-        assert handler._query == "Explain compliance."
+        rid = _start_root(handler, {"input": "Explain compliance."})
+        assert handler._runs[rid].query == "Explain compliance."
 
     def test_ignores_unknown_keys(self, handler):
-        handler.on_chain_start({}, {"irrelevant": "nothing"})
+        rid = _start_root(handler, {"irrelevant": "nothing"})
         # Falls back to stringifying the whole dict so we at least have
         # something when the input shape is unexpected.
-        assert "irrelevant" in handler._query
+        assert "irrelevant" in handler._runs[rid].query
 
 
 class TestRetrieverCapture:
     def test_captures_chunks_with_metadata(self, handler):
+        rid = _start_root(handler, {"query": "q"})
         docs = [
             Document(
                 page_content="RAG stands for Retrieval Augmented Generation.",
@@ -54,78 +63,76 @@ class TestRetrieverCapture:
                 metadata={"source": "https://example.com/compliance", "chunk_id": "def456", "score": 0.87},
             ),
         ]
-        handler.on_retriever_end(docs)
+        handler.on_retriever_end(docs, run_id=rid)
 
-        assert len(handler._chunks) == 2
-        assert handler._chunks[0].source_url == "https://example.com/rag"
-        assert handler._chunks[0].chunk_id == "abc123"
-        assert handler._chunks[0].similarity_score == 0.92
-        assert handler._chunks[1].similarity_score == 0.87
+        chunks = handler._runs[rid].chunks
+        assert len(chunks) == 2
+        assert chunks[0].source_url == "https://example.com/rag"
+        assert chunks[0].chunk_id == "abc123"
+        assert chunks[0].similarity_score == 0.92
+        assert chunks[1].similarity_score == 0.87
 
     def test_handles_missing_metadata_gracefully(self, handler):
+        rid = _start_root(handler, {"query": "q"})
         docs = [Document(page_content="Plain content", metadata={})]
-        handler.on_retriever_end(docs)
+        handler.on_retriever_end(docs, run_id=rid)
 
-        assert len(handler._chunks) == 1
-        assert handler._chunks[0].source_url == "unknown"
-        assert handler._chunks[0].chunk_id == "chunk-0"
-        assert handler._chunks[0].similarity_score is None
+        chunks = handler._runs[rid].chunks
+        assert len(chunks) == 1
+        assert chunks[0].source_url == "unknown"
+        assert chunks[0].chunk_id == "chunk-0"
+        assert chunks[0].similarity_score is None
 
 
 class TestLLMCapture:
     def test_captures_llm_answer(self, handler):
+        rid = _start_root(handler, {"query": "q"})
         generation = Generation(text="RAG improves LLM accuracy using external context.")
         result = LLMResult(generations=[[generation]])
-        handler.on_llm_end(result)
-        assert handler._llm_answer == "RAG improves LLM accuracy using external context."
+        handler.on_llm_end(result, run_id=rid)
+        assert (
+            handler._runs[rid].llm_answer
+            == "RAG improves LLM accuracy using external context."
+        )
 
     def test_captures_model_name(self, handler):
+        rid = _start_root(handler, {"query": "q"})
         generation = Generation(text="Answer.")
         result = LLMResult(generations=[[generation]], llm_output={"model_name": "gpt-4"})
-        handler.on_llm_end(result)
-        assert handler._model_name == "gpt-4"
+        handler.on_llm_end(result, run_id=rid)
+        assert handler._runs[rid].model_name == "gpt-4"
 
 
 class TestChainSignature:
     def test_signature_is_sha256(self, handler):
-        handler._query = "test query"
-        handler._chunks = []
-        handler._llm_answer = "test answer"
-
-        sig = handler._sign_chain()
+        state = _RunState(query="test query", llm_answer="test answer")
+        sig = handler._sign_chain(state)
 
         payload = {"query": "test query", "chunks": [], "answer": "test answer"}
         expected = hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
         assert sig == expected
 
     def test_signature_changes_with_different_content(self, handler):
-        handler._query = "query A"
-        handler._llm_answer = "answer A"
-        sig_a = handler._sign_chain()
-
-        handler._query = "query B"
-        handler._llm_answer = "answer B"
-        sig_b = handler._sign_chain()
-
-        assert sig_a != sig_b
+        state_a = _RunState(query="query A", llm_answer="answer A")
+        state_b = _RunState(query="query B", llm_answer="answer B")
+        assert handler._sign_chain(state_a) != handler._sign_chain(state_b)
 
 
 class TestChainEnd:
-    """The handler latches onto the OUTERMOST chain via run_id to avoid
-    saving half-built records for intermediate LCEL sub-runnables. These
-    tests simulate the outer chain boundary by priming _root_run_id and
-    passing the same run_id into on_chain_end."""
+    """The handler finalizes only when the OUTERMOST chain ends. Inner
+    LCEL sub-runnables fire on_chain_end too — those are ignored because
+    their run_id isn't in ``_runs`` (only root run_ids live there)."""
 
     def test_saves_record_on_chain_end(self, handler):
-        run_id = uuid.uuid4()
-        handler._root_run_id = run_id
-        handler._query = "What is auditability?"
-        handler._llm_answer = "It means being able to trace decisions."
+        rid = _start_root(handler, {"query": "What is auditability?"})
+        # Simulate the LLM firing mid-chain.
+        gen = Generation(text="It means being able to trace decisions.")
+        handler.on_llm_end(LLMResult(generations=[[gen]]), run_id=rid)
 
         with patch.object(handler.storage, "save", return_value=True) as mock_save:
             handler.on_chain_end(
                 {"answer": "It means being able to trace decisions."},
-                run_id=run_id,
+                run_id=rid,
             )
             mock_save.assert_called_once()
             record = mock_save.call_args[0][0]
@@ -137,31 +144,28 @@ class TestChainEnd:
     def test_ignores_inner_chain_end(self, handler):
         """Inner LCEL sub-runnables fire on_chain_end too; the handler must
         ignore those or it'd save an empty record before the LLM ran."""
-        outer = uuid.uuid4()
+        outer = _start_root(handler, {"query": "q"})
         inner = uuid.uuid4()
-        handler._root_run_id = outer
+        # Inner sub-runnable fires on_chain_start with parent_run_id set.
+        handler.on_chain_start({}, {"sub": "input"}, run_id=inner, parent_run_id=outer)
 
         with patch.object(handler.storage, "save", return_value=True) as mock_save:
             handler.on_chain_end({"intermediate": "stuff"}, run_id=inner)
             mock_save.assert_not_called()
+        # Outer run is still tracked.
+        assert outer in handler._runs
 
-    def test_resets_state_after_chain_end(self, handler):
-        run_id = uuid.uuid4()
-        handler._root_run_id = run_id
-        handler._query = "some query"
-        handler._llm_answer = "some answer"
+    def test_state_cleaned_up_after_chain_end(self, handler):
+        rid = _start_root(handler, {"query": "some query"})
+        gen = Generation(text="some answer")
+        handler.on_llm_end(LLMResult(generations=[[gen]]), run_id=rid)
 
         with patch.object(handler.storage, "save", return_value=True):
-            handler.on_chain_end({}, run_id=run_id)
+            handler.on_chain_end({}, run_id=rid)
 
-        assert handler._query == ""
-        assert handler._chunks == []
-        assert handler._llm_answer == ""
-        assert handler._root_run_id is None
+        assert rid not in handler._runs
 
-    def test_resets_on_error(self, handler):
-        run_id = uuid.uuid4()
-        handler._root_run_id = run_id
-        handler._query = "failing query"
-        handler.on_chain_error(Exception("LLM timeout"), run_id=run_id)
-        assert handler._query == ""
+    def test_state_cleaned_up_on_error(self, handler):
+        rid = _start_root(handler, {"query": "failing query"})
+        handler.on_chain_error(Exception("LLM timeout"), run_id=rid)
+        assert rid not in handler._runs

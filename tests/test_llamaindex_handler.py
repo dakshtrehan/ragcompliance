@@ -32,10 +32,11 @@ class TestLlamaIndexHandler:
             payload={"query_str": "What does section 4.2 say?"},
             event_id="e1",
         )
-        assert h._query == "What does section 4.2 say?"
+        assert h._traces["t1"].query == "What does section 4.2 say?"
 
     def test_captures_retrieved_nodes_with_scores(self):
         h = _make_handler()
+        h.start_trace("t1")
         nodes = [
             NodeWithScore(
                 node=TextNode(
@@ -54,10 +55,11 @@ class TestLlamaIndexHandler:
         ]
         h.on_event_end(CBEventType.RETRIEVE, payload={"nodes": nodes}, event_id="e2")
 
-        assert len(h._chunks) == 2
-        assert h._chunks[0].source_url == "contract-v3.pdf"
-        assert h._chunks[0].chunk_id == "c42"
-        assert h._chunks[0].similarity_score == pytest.approx(0.91)
+        chunks = h._traces["t1"].chunks
+        assert len(chunks) == 2
+        assert chunks[0].source_url == "contract-v3.pdf"
+        assert chunks[0].chunk_id == "c42"
+        assert chunks[0].similarity_score == pytest.approx(0.91)
 
     def test_signs_chain_and_saves_on_end_trace(self):
         h = _make_handler()
@@ -90,9 +92,8 @@ class TestLlamaIndexHandler:
         assert rec.query == "Q?"
         assert rec.llm_answer == "final answer"
         assert len(rec.chain_signature) == 64  # sha256 hex
-        # Handler state resets after end_trace
-        assert h._query == ""
-        assert h._chunks == []
+        # Per-trace state is evicted on end_trace
+        assert "t1" not in h._traces
 
     def test_enforce_quota_raises_when_over_limit(self):
         h = _make_handler(enforce_quota=True)
