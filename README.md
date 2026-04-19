@@ -9,6 +9,8 @@
 
 **→ Website & full docs: [www.dakshtrehan.com/ragcompliance](https://www.dakshtrehan.com/ragcompliance/)**
 
+RAGCompliance is drop-in audit trail middleware for retrieval-augmented generation pipelines built on LangChain or LlamaIndex.
+
 A lot of RAG projects stall before production, not because the retrieval is bad but because compliance teams cannot sign off on a black box. RAGCompliance wraps any LangChain or LlamaIndex retrieval call and logs the full chain: query, retrieved chunks (with source URLs and similarity scores), LLM answer, and a SHA-256 signature tying them together. State lives in Supabase with row-level security per workspace. Drop-in, no chain rewrites.
 
 ## Quickstart

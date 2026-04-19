@@ -4,7 +4,40 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>ragcompliance: audit trail middleware for RAG in regulated industries</title>
-<meta name="description" content="Drop-in LangChain and LlamaIndex middleware that logs, signs, and surfaces every retrieval-to-generation chain. Built for teams that have to answer auditors." />
+<meta name="description" content="Drop-in LangChain and LlamaIndex middleware that logs, signs, and surfaces every retrieval and generation chain. Built for compliance teams in finance, healthcare, legal, and insurance." />
+
+<!-- Canonical -->
+<link rel="canonical" href="https://www.dakshtrehan.com/ragcompliance/" />
+
+<!-- Meta basics -->
+<meta name="author" content="Daksh Trehan" />
+<meta name="robots" content="index, follow, max-snippet:-1, max-image-preview:large" />
+<meta name="theme-color" content="#9C5A24" />
+<meta name="keywords" content="RAG audit, RAG compliance, RAG audit trail, LangChain audit logging, LlamaIndex audit, SOC 2 for LLM, tamper-evident LLM logs, AI audit trail, retrieval-augmented generation compliance" />
+
+<!-- Open Graph (LinkedIn, Facebook, Slack, iMessage) -->
+<meta property="og:type" content="website" />
+<meta property="og:site_name" content="RAGCompliance" />
+<meta property="og:title" content="RAGCompliance: audit trail for RAG in regulated industries" />
+<meta property="og:description" content="Drop-in LangChain and LlamaIndex middleware that logs, signs, and surfaces every retrieval and generation chain. Built for compliance teams in finance, healthcare, legal, and insurance." />
+<meta property="og:url" content="https://www.dakshtrehan.com/ragcompliance/" />
+<meta property="og:image" content="https://www.dakshtrehan.com/ragcompliance/og-image.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="RAGCompliance: audit trail middleware for RAG pipelines" />
+
+<!-- Twitter Card -->
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:creator" content="@dakshtrehan" />
+<meta name="twitter:title" content="RAGCompliance: audit trail for RAG in regulated industries" />
+<meta name="twitter:description" content="Drop-in LangChain and LlamaIndex middleware that logs, signs, and surfaces every retrieval and generation chain." />
+<meta name="twitter:image" content="https://www.dakshtrehan.com/ragcompliance/og-image.png" />
+
+<!-- Favicons -->
+<link rel="icon" type="image/svg+xml" href="/ragcompliance/favicon.svg" />
+<link rel="icon" type="image/png" sizes="32x32" href="/ragcompliance/favicon-32.png" />
+<link rel="apple-touch-icon" href="/ragcompliance/apple-touch-icon.png" />
+
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght,SOFT,WONK@0,9..144,300..700,0..100,0..1;1,9..144,300..700,0..100,0..1&family=JetBrains+Mono:ital,wght@0,400..700;1,400..600&display=swap" rel="stylesheet">
@@ -783,6 +816,36 @@
     outline: 2px solid var(--seal); outline-offset: 3px;
   }
 </style>
+
+<!-- Structured data: SoftwareApplication -->
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "RAGCompliance",
+  "description": "Audit trail middleware for RAG pipelines in regulated industries. Drop-in callback handler for LangChain and LlamaIndex that logs every query, retrieved chunk, and LLM answer, signs the chain with SHA-256, and writes one signed row per invocation to Supabase with row-level security per workspace.",
+  "applicationCategory": "DeveloperApplication",
+  "applicationSubCategory": "AI compliance and audit middleware",
+  "operatingSystem": "Linux, macOS, Windows",
+  "programmingLanguage": "Python",
+  "softwareVersion": "0.1.7",
+  "license": "https://opensource.org/licenses/MIT",
+  "url": "https://www.dakshtrehan.com/ragcompliance/",
+  "downloadUrl": "https://pypi.org/project/ragcompliance/",
+  "codeRepository": "https://github.com/dakshtrehan/ragcompliance",
+  "author": {
+    "@type": "Person",
+    "name": "Daksh Trehan",
+    "url": "https://www.dakshtrehan.com/"
+  },
+  "offers": {
+    "@type": "Offer",
+    "price": "0",
+    "priceCurrency": "USD"
+  },
+  "keywords": "RAG audit, RAG compliance, LangChain audit logging, LlamaIndex audit, SOC 2 for LLM, tamper-evident LLM logs, AI audit trail, retrieval-augmented generation compliance"
+}
+</script>
 </head>
 <body>
 
@@ -838,6 +901,9 @@
           <h1 class="hero-title">
             Proof for <em>every</em> answer<br>your RAG ever gave.
           </h1>
+          <p class="hero-subtitle" style="font-family: var(--serif); font-size: 18px; color: var(--ink-2); margin: 14px 0 18px; max-width: 52ch; line-height: 1.5;">
+            RAG compliance middleware for LangChain and LlamaIndex. One callback, one signed audit row per chain.
+          </p>
           <p class="hero-sub">
             ragcompliance is drop-in middleware for LangChain and LlamaIndex that logs the full chain (query, retrieved chunks with source URLs and similarity scores, the LLM answer, model name, latency), signs it with SHA-256, and writes one row per invocation to your own Supabase, behind row-level security per workspace. No chain rewrites. No black box.
           </p>
@@ -917,6 +983,9 @@
     <div class="wrap">
       <div class="section-tag">01 · The gap</div>
       <h2 class="section-head">RAG doesn't fail in the model.<br>It fails in the <em>audit.</em></h2>
+      <p class="section-lede" style="margin-bottom: 28px;">
+        RAG compliance is not a solved problem. Retrieval works, generation works, but the moment a compliance team asks for proof of what the model saw and proof that no one tampered with it since, most RAG stacks have nothing to hand over.
+      </p>
       <p class="section-lede" style="margin-bottom: 72px;">
         In regulated industries (finance, healthcare, legal, insurance) the question is never "is your retrieval good?" It's "can you prove, for any given answer on any given day, which document was cited, what the model saw, and that no one tampered with it since?" Most RAG stacks can't.
       </p>
@@ -1135,6 +1204,9 @@ response = query_engine.query(<span class="str">"Does §4.2 cover indemnificatio
       <div class="section-tag">06 · Shipped & shipping</div>
       <h2 class="section-head">A tight scope, <em>shipped</em> in public.</h2>
       <p class="section-lede">
+        RAGCompliance is a focused audit trail library for retrieval-augmented generation. Not a tracing platform, not an eval suite, not a vector database. One job: turn every RAG chain invocation into one signed, row-level-secured audit record your compliance team can actually audit.
+      </p>
+      <p class="section-lede">
         Every checkmark below has a commit, a test suite, and a Render deploy behind it. Anything planned is marked as such, with no pretending.
       </p>
 
@@ -1238,7 +1310,7 @@ response = query_engine.query(<span class="str">"Does §4.2 cover indemnificatio
     <div class="cols">
       <div>
         <div class="brand">ragcompliance</div>
-        <p class="tag">Audit trail middleware for RAG pipelines in regulated industries. One callback, one signed row per chain, row-level security per workspace. Drop in, don't rewrite.</p>
+        <p class="tag">RAGCompliance is MIT-licensed audit trail middleware for RAG pipelines in regulated industries. Drop-in LangChain callback handler and LlamaIndex CallbackManager adapter. SHA-256 chain signatures for tamper detection, Supabase row-level security for multi-tenant isolation, SOC 2 evidence export for auditor spot-checks. Built for finance, healthcare, legal, and insurance teams shipping retrieval-augmented generation into production.</p>
       </div>
       <div>
         <h5>Product</h5>
