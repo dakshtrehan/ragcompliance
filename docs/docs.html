@@ -500,7 +500,7 @@
 
   <!-- ─── install ─── -->
   <h2 id="install">Installation</h2>
-  <p>The base install logs to stdout — good for local dev, not good for production. For anything real, install with the Supabase extra so the handler writes to a real audit table.</p>
+  <p>The base install logs to stdout, which is good for local dev but not good for production. For anything real, install with the Supabase extra so the handler writes to a real audit table.</p>
 
 <pre data-lang="bash"><button class="copybtn" data-txt='pip install "ragcompliance[supabase]"'>Copy</button><code><span class="bash-p">$</span> pip install <span class="str">"ragcompliance[supabase]"</span></code></pre>
 
@@ -521,13 +521,13 @@ pip install "ragcompliance[dashboard,sso]"'>Copy</button><code><span class="cm">
 
   <!-- ─── supabase ─── -->
   <h2 id="supabase">Supabase setup</h2>
-  <p>Create a free Supabase project at <a href="https://supabase.com" target="_blank" rel="noopener">supabase.com</a>. You need two SQL scripts applied once in the SQL editor — one creates the audit log table with row-level security, the other adds the billing + usage tables used by the dashboard.</p>
+  <p>Create a free Supabase project at <a href="https://supabase.com" target="_blank" rel="noopener">supabase.com</a>. You need two SQL scripts applied once in the SQL editor. One creates the audit log table with row-level security, the other adds the billing + usage tables used by the dashboard.</p>
 
   <ol>
     <li>Open the SQL editor in your Supabase project.</li>
     <li>Paste and run <code>supabase_schema.sql</code> from the repo (audit log table, indexes, RLS policies).</li>
     <li>Paste and run <code>supabase_migration_billing.sql</code> (subscriptions, query counters, period-end RPC).</li>
-    <li>Copy the <code>service_role</code> key from your project's API settings. <strong>Do not</strong> use the <code>anon</code> key — RLS will block the handler from writing.</li>
+    <li>Copy the <code>service_role</code> key from your project's API settings. <strong>Do not</strong> use the <code>anon</code> key; RLS will block the handler from writing.</li>
   </ol>
 
   <div class="callout warn"><strong>security</strong>The service role key bypasses RLS on your Supabase project. Store it in a secret manager, never commit it, never expose it to browser code. The handler only needs it server-side.</div>
@@ -747,7 +747,7 @@ uvicorn ragcompliance.app:app --reload'>Copy</button><code><span class="bash-p">
 
   <!-- ─── SSO ─── -->
   <h2 id="sso">SSO (OIDC)</h2>
-  <p>The dashboard ships open by default so local dev stays frictionless. Set four environment variables and SSO turns on via standards OIDC discovery — Google Workspace, Okta, Auth0, Microsoft Entra, Authentik, Keycloak, any IdP that exposes a <code>.well-known/openid-configuration</code> document.</p>
+  <p>The dashboard ships open by default so local dev stays frictionless. Set four environment variables and SSO turns on via standards OIDC discovery: Google Workspace, Okta, Auth0, Microsoft Entra, Authentik, Keycloak, and any IdP that exposes a <code>.well-known/openid-configuration</code> document.</p>
 
 <pre data-lang="bash"><button class="copybtn" data-txt='pip install "ragcompliance[dashboard,sso]"'>Copy</button><code><span class="bash-p">$</span> pip install <span class="str">"ragcompliance[dashboard,sso]"</span></code></pre>
 
@@ -769,13 +769,16 @@ RAGCOMPLIANCE_SESSION_SECRET=$(python -c <span class="str">"import secrets; prin
 
   <!-- ─── billing ─── -->
   <h2 id="billing">Plans & checkout</h2>
-  <p>Two plans ship out of the box. Both are configured via Stripe products + recurring prices and wired into the dashboard at boot.</p>
+
+  <div class="callout note"><strong>reference implementation</strong>These plans and prices are a ready-to-run reference implementation for operators who want to run ragcompliance as an internal product and meter downstream users. They are <strong>not</strong> a paid tier of this project. ragcompliance itself is MIT licensed and free to self-host forever: rewrite <code>PLANS</code> in <code>ragcompliance.billing</code> to anything you want, or remove the billing router entirely if you don't need it.</div>
+
+  <p>Two plans ship out of the box as a reference. Both are configured via Stripe products + recurring prices and wired into the dashboard at boot.</p>
 
   <table>
-    <thead><tr><th>Tier</th><th>Price</th><th>Queries / month</th><th>Extras</th></tr></thead>
+    <thead><tr><th>Tier</th><th>Example price</th><th>Queries / month</th><th>Extras</th></tr></thead>
     <tbody>
-      <tr><td>Team</td><td>$49 / mo</td><td>10,000</td><td>CSV/JSON export, email support</td></tr>
-      <tr><td>Enterprise</td><td>$199 / mo</td><td>Unlimited</td><td>SSO, custom retention, priority review</td></tr>
+      <tr><td>Team (reference)</td><td>$49 / mo</td><td>10,000</td><td>CSV/JSON export, email support</td></tr>
+      <tr><td>Enterprise (reference)</td><td>$199 / mo</td><td>Unlimited</td><td>SSO, custom retention, priority review</td></tr>
     </tbody>
   </table>
 
@@ -798,7 +801,7 @@ checkout_url = r.json()[<span class="str">"checkout_url"</span>]
 <span class="cm"># redirect user to checkout_url</span></code></pre>
 
   <h2 id="quota">Quota enforcement</h2>
-  <p>Quota enforcement is soft by default — the chain logs a warning if the workspace is over its limit but the invocation still runs. Set <code>RAGCOMPLIANCE_ENFORCE_QUOTA=true</code> to hard-block. In fail-closed mode the handler raises <code>RuntimeError</code> before the LLM runs, and no audit row is written for the blocked invocation.</p>
+  <p>Quota enforcement is soft by default: the chain logs a warning if the workspace is over its limit but the invocation still runs. Set <code>RAGCOMPLIANCE_ENFORCE_QUOTA=true</code> to hard-block. In fail-closed mode the handler raises <code>RuntimeError</code> before the LLM runs, and no audit row is written for the blocked invocation.</p>
 
   <div class="callout ok"><strong>why soft by default</strong>The first time you wire billing in, you don't want an expired invoice to suddenly break your product. Keep it soft while you verify that Stripe webhooks are delivering, then flip it to hard.</div>
 
@@ -810,7 +813,7 @@ checkout_url = r.json()[<span class="str">"checkout_url"</span>]
   <p>Flipping the dashboard from test mode to live mode is a four-step runbook. The readiness probe catches the paste errors before a customer does.</p>
 
   <ol>
-    <li>In the Stripe dashboard, switch to Live mode. Create the Team and Enterprise products + recurring prices — live mode is a separate universe from test mode, the price IDs do not carry over. Copy the two <code>price_live_…</code> IDs.</li>
+    <li>In the Stripe dashboard, switch to Live mode. Create the Team and Enterprise products + recurring prices. Live mode is a separate universe from test mode, the price IDs do not carry over. Copy the two <code>price_live_…</code> IDs.</li>
     <li>Update your deployment environment:</li>
   </ol>
 
@@ -848,7 +851,7 @@ APP_BASE_URL=https://dash.example.com             <span class="cm"># must NOT be
   }
 }</code></pre>
 
-  <p>Response sanitises every secret — only prefixes like <code>sk_live…</code> ever leak — so it's safe for an uptime monitor or status page to poll.</p>
+  <p>Response sanitises every secret (only prefixes like <code>sk_live…</code> ever leak), so it's safe for an uptime monitor or status page to poll.</p>
 
   <p>Programmatic callers get the same structure via <code>BillingManager.readiness()</code> returning a <code>BillingReadiness</code> dataclass.</p>
 
@@ -878,7 +881,7 @@ rd: <span class="cls">BillingReadiness</span> = <span class="cls">BillingManager
     --sample 25 --seed 42 \
     --out acme-q1-2026-evidence.md</code></pre>
 
-  <p>The report pulls records straight from <code>rag_audit_logs</code>, computes integrity stats (signed vs unsigned, unique sessions, avg latency, models observed), recomputes the SHA-256 signature on a random sample so an auditor can spot-check independently, and renders the control matrix and methodology section. It is not itself a SOC 2 attestation — only a licensed auditor can issue one — but it cuts audit-prep back-and-forth from weeks to minutes.</p>
+  <p>The report pulls records straight from <code>rag_audit_logs</code>, computes integrity stats (signed vs unsigned, unique sessions, avg latency, models observed), recomputes the SHA-256 signature on a random sample so an auditor can spot-check independently, and renders the control matrix and methodology section. It is not itself a SOC 2 attestation (only a licensed auditor can issue one), but it cuts audit-prep back-and-forth from weeks to minutes.</p>
 
   <h3 id="soc2-sample">Sample size and confidence</h3>
   <p>The evidence report recomputes SHA-256 signatures on a random sample of records from the period. The default is 25 records, suitable for a quarterly compliance spot-check. For deeper due-diligence runs, raise it by passing <code>--sample 100</code> or higher. Sampling is random but seeded via <code>--seed</code> for reproducibility, so an auditor re-running with the same inputs gets the same sample. A given run may not surface a specific tampered record if the tamper rate is low and the sample size is small; the relationship is the standard hypergeometric one. For exhaustive verification across the full period, pass a <code>sample_size</code> equal to the total record count or loop <code>_verify_signature</code> over every record programmatically.</p>
@@ -905,11 +908,11 @@ md = generate_report(
 
   <!-- ─── async ─── -->
   <h2 id="async">Async audit writes</h2>
-  <p>Handler overhead is under 1ms at p50 (~38µs measured in isolation on a clean hot path). End-to-end chain latency depends on your retriever, LLM, and prompt — the handler's contribution is a small constant added on top of whatever your chain does.</p>
+  <p>Handler overhead is under 1ms at p50 (~38µs measured in isolation on a clean hot path). End-to-end chain latency depends on your retriever, LLM, and prompt; the handler's contribution is a small constant added on top of whatever your chain does.</p>
 
   <p>Audit writes are fire-and-forget by default. <code>save()</code> enqueues the record onto a bounded in-memory queue and a single daemon worker drains it into Supabase, so the chain's hot path never blocks on audit I/O.</p>
 
-  <p>In benchmarks, per-chain audit-write overhead drops from roughly 1.2s (sync Supabase RTT) to well under 1ms (enqueue only) — a three to four order of magnitude improvement.</p>
+  <p>In benchmarks, per-chain audit-write overhead drops from roughly 1.2s (sync Supabase RTT) to well under 1ms (enqueue only), a three to four order of magnitude improvement.</p>
 
   <p>If Supabase is unreachable, records buffer in memory up to <code>RAGCOMPLIANCE_ASYNC_MAX_QUEUE</code> (default 1000) and then drop with a log warning rather than leak memory. On normal process exit an <code>atexit</code> hook drains pending records within <code>RAGCOMPLIANCE_ASYNC_SHUTDOWN_TIMEOUT</code> seconds (default 5). You can also call <code>handler.storage.flush()</code> explicitly in tests or your own shutdown path.</p>
 
@@ -933,7 +936,7 @@ md = generate_report(
 
   <!-- ─── deploy ─── -->
   <h2 id="deploy">Deployment</h2>
-  <p>The dashboard is a single FastAPI app. It's stateless — state lives in Supabase — so any container platform works identically.</p>
+  <p>The dashboard is a single FastAPI app. It's stateless (state lives in Supabase), so any container platform works identically.</p>
 
   <h3 id="deploy-render">Render (fastest)</h3>
   <ol>

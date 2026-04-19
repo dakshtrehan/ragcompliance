@@ -9,11 +9,11 @@
 
 **→ Website & full docs: [www.dakshtrehan.com/ragcompliance](https://www.dakshtrehan.com/ragcompliance/)**
 
-40 to 60 percent of RAG projects never reach production, not because the retrieval is bad but because compliance teams cannot sign off on a black box. RAGCompliance wraps any LangChain or LlamaIndex retrieval call and logs the full chain: query, retrieved chunks (with source URLs and similarity scores), LLM answer, and a SHA-256 signature tying them together. State lives in Supabase with row-level security per workspace. Drop-in, no chain rewrites.
+A lot of RAG projects stall before production, not because the retrieval is bad but because compliance teams cannot sign off on a black box. RAGCompliance wraps any LangChain or LlamaIndex retrieval call and logs the full chain: query, retrieved chunks (with source URLs and similarity scores), LLM answer, and a SHA-256 signature tying them together. State lives in Supabase with row-level security per workspace. Drop-in, no chain rewrites.
 
 ## Quickstart
 
-Install with the Supabase extra (this is the one you want — without it, audit logs only print to stdout):
+Install with the Supabase extra (this is the one you want, without it audit logs only print to stdout):
 
 ```bash
 pip install "ragcompliance[supabase]"
@@ -87,7 +87,7 @@ answer = chain.invoke(
 )
 ```
 
-The handler captures the full chain — query, all retrieved chunks with source URLs and similarity scores, the LLM answer, model name, and latency — signs it with SHA-256, and writes one row per chain invocation to `rag_audit_logs`.
+The handler captures the full chain (query, all retrieved chunks with source URLs and similarity scores, the LLM answer, model name, and latency), signs it with SHA-256, and writes one row per chain invocation to `rag_audit_logs`.
 
 ## Usage (LlamaIndex)
 
@@ -114,7 +114,7 @@ response = query_engine.query("What does section 4.2 say?")
 ```python
 handler = RAGComplianceHandler(config=RAGComplianceConfig.from_env())
 
-# All three queries land as three separate audit records — one per invocation,
+# All three queries land as three separate audit records, one per invocation,
 # each with its own query, chunks, answer, and signature.
 answers = chain.batch(
     [{"query": "q1"}, {"query": "q2"}, {"query": "q3"}],
@@ -141,7 +141,7 @@ Every invocation writes an audit record like this:
     }
   ],
   "llm_answer": "Section 4.2 covers indemnification obligations...",
-  "model_name": "gpt-4",
+  "model_name": "gpt-4o-mini",
   "chain_signature": "a3f8c2d1...",
   "timestamp": "2026-04-10T06:00:00Z",
   "latency_ms": 1240
@@ -152,11 +152,11 @@ Every invocation writes an audit record like this:
 
 `chain_signature` is a SHA-256 over a JSON payload containing exactly these fields, in a stable order:
 
-- `query` — the user's question string as received by the chain
+- `query`: the user's question string as received by the chain
 - for each retrieved chunk: `content`, `source_url`, `chunk_id`
-- `llm_answer` — the model's final answer string
+- `llm_answer`: the model's final answer string
 
-These are the fields that answer *"what did the model see, and what did it say?"* — the chain of custody auditors actually want to verify.
+These are the fields that answer *"what did the model see, and what did it say?"*. That is the chain of custody auditors actually want to verify.
 
 Intentionally out of scope: `similarity_score`, free-form chunk `metadata`, `model_name`, `latency_ms`, `timestamp`, `session_id`. These are useful observability fields but they're either retriever-implementation details or metadata about the run, not statements about the answer's provenance. Tampering with them does not invalidate the answer, and including them would make the signature brittle across retriever versions.
 
@@ -191,14 +191,14 @@ RAGCompliance is MIT-licensed and free to self-host. No dashboard call-home, no 
 
 If you'd rather not run it yourself, I offer a few kinds of paid help around the project:
 
-- **Integration review** — I read your RAG pipeline, tell you exactly what to wire in, and leave you with a passing end-to-end audit trail. Flat fee, one-week engagement.
-- **SOC 2 evidence prep** — I use the built-in evidence generator against your live data, sample-verify signatures, and hand you an auditor-ready pack mapped to CC6.1, CC7.2, CC8.1, A1.1, C1.1.
-- **Custom features on contract** — new retrievers, new alert rules, custom redaction, BYO object storage, private benchmarks. Scoped per engagement.
-- **Operated dashboard** — if you don't want to run the FastAPI dashboard, Supabase, and alerting yourself, I can host it for you under your own domain.
+- **Integration review.** I read your RAG pipeline, tell you exactly what to wire in, and leave you with a passing end-to-end audit trail. Flat fee, one-week engagement.
+- **SOC 2 evidence prep.** I use the built-in evidence generator against your live data, sample-verify signatures, and hand you an auditor-ready pack mapped to CC6.1, CC7.2, CC8.1, A1.1, C1.1.
+- **Custom features on contract.** New retrievers, new alert rules, custom redaction, BYO object storage, private benchmarks. Scoped per engagement.
+- **Operated dashboard.** If you don't want to run the FastAPI dashboard, Supabase, and alerting yourself, I can host it for you under your own domain.
 
 Reach out at [daksh.trehan@hotmail.com](mailto:daksh.trehan@hotmail.com?subject=RAGCompliance) with what you're trying to ship.
 
-The Stripe billing + quota-metering code stays in the repo as a **reference implementation** — if you run RAGCompliance for a team and want to charge downstream users for quota, the plumbing is all there. It is not a paid tier of this project.
+The Stripe billing + quota-metering code stays in the repo as a **reference implementation**. If you run RAGCompliance for a team and want to charge downstream users for quota, the plumbing is all there. It is not a paid tier of this project.
 
 ### Billing reference implementation
 
@@ -215,7 +215,7 @@ checkout_url = r.json()["checkout_url"]
 # Redirect the user to checkout_url
 ```
 
-Quota enforcement is soft by default (the chain logs a warning if the workspace is over its limit). Set `RAGCOMPLIANCE_ENFORCE_QUOTA=true` to hard-block instead — the handler will raise `RuntimeError` before the LLM runs.
+Quota enforcement is soft by default (the chain logs a warning if the workspace is over its limit). Set `RAGCOMPLIANCE_ENFORCE_QUOTA=true` to hard-block instead; the handler will raise `RuntimeError` before the LLM runs.
 
 Query counters reset automatically at each billing period rollover. The reset is driven by Stripe's `customer.subscription.updated` webhook, with a self-healing fallback in `check_query_quota` that forces a reset if the stored period end falls into the past (so a dropped webhook can never permanently lock a workspace out).
 
@@ -241,13 +241,13 @@ Flipping the dashboard from test mode to live mode is a four-step runbook. RAGCo
    curl https://<your-dash>/health/billing
    ```
 
-   A fully-configured live deployment returns `{"ok": true, "mode": "live", ...}` with a 200. Any misconfiguration (missing webhook secret, `prod_…` pasted where `price_…` belongs, localhost base URL in live mode, Supabase not reachable) comes back as 503 with an `issues` list. The response sanitises every secret — only prefixes like `sk_live…` ever leak — so it's safe to hit from a status page or uptime monitor.
+   A fully-configured live deployment returns `{"ok": true, "mode": "live", ...}` with a 200. Any misconfiguration (missing webhook secret, `prod_…` pasted where `price_…` belongs, localhost base URL in live mode, Supabase not reachable) comes back as 503 with an `issues` list. The response sanitises every secret (only prefixes like `sk_live…` ever leak), so it's safe to hit from a status page or uptime monitor.
 
 Programmatic callers get the same structure via `BillingManager.readiness()` returning a `BillingReadiness` dataclass.
 
 ## Latency
 
-Handler overhead is under 1ms at p50 (~38µs measured in isolation on a clean hot path). End-to-end chain latency depends on your retriever, LLM, and prompt — the handler's contribution is a small constant added on top of whatever your chain does.
+Handler overhead is under 1ms at p50 (~38µs measured in isolation on a clean hot path). End-to-end chain latency depends on your retriever, LLM, and prompt; the handler's contribution is a small constant added on top of whatever your chain does.
 
 Audit writes are fire-and-forget by default. `save()` enqueues the record onto a bounded in-memory queue and a single daemon worker drains it into Supabase, so the chain's hot path never blocks on audit I/O. In benchmarks, per-chain audit-write overhead drops from roughly 1.2s (sync Supabase RTT) to well under 1ms (enqueue only), a three to four order of magnitude improvement.
 
@@ -268,7 +268,7 @@ Alerts post on a separate daemon worker with a bounded queue, so Slack outages c
 
 ## SSO on the dashboard
 
-The dashboard ships wide open by default so local dev stays frictionless. Set four env vars and SSO turns on via standards OIDC discovery — Google Workspace, Okta, Auth0, Microsoft Entra, Authentik all just work.
+The dashboard ships wide open by default so local dev stays frictionless. Set four env vars and SSO turns on via standards OIDC discovery: Google Workspace, Okta, Auth0, Microsoft Entra, and Authentik all just work.
 
 ```bash
 pip install "ragcompliance[dashboard,sso]"
@@ -283,7 +283,7 @@ RAGCOMPLIANCE_OIDC_ALLOWED_DOMAINS=acme.com,acme.co.uk   # optional allowlist
 RAGCOMPLIANCE_SESSION_SECRET=$(python -c "import secrets; print(secrets.token_urlsafe(48))")
 ```
 
-Once wired on, every dashboard route except `/health`, `/login`, `/auth/callback`, `/logout`, and `/stripe/webhook` requires a signed-in session. Browsers get a 302 redirect to `/login`; API clients get 401 so scripted access surfaces cleanly. The allowed domains list is optional — leave it blank to permit any email that signs in through the IdP, or lock down to a corporate domain.
+Once wired on, every dashboard route except `/health`, `/login`, `/auth/callback`, `/logout`, and `/stripe/webhook` requires a signed-in session. Browsers get a 302 redirect to `/login`; API clients get 401 so scripted access surfaces cleanly. The allowed domains list is optional; leave it blank to permit any email that signs in through the IdP, or lock down to a corporate domain.
 
 ## SOC 2 evidence
 
@@ -362,13 +362,13 @@ pytest -v
 
 See [CHANGELOG.md](./CHANGELOG.md) for what's already shipped. What's coming next:
 
-- [ ] **BYO object storage** — write the raw query / chunks / answer payload to S3 / GCS / Azure Blob under a customer-owned KMS key, so Supabase only holds metadata and the signature. Keeps sensitive text out of the shared database entirely.
-- [ ] **PII redaction pre-audit** — opt-in hook that runs a local regex + NER pass over the query and retrieved chunks before the record is signed, so audit trails don't become a secondary PII leak.
-- [ ] **Anthropic and Bedrock parity** — the LangChain integration already works with any chat model, but we want first-class coverage (and fixture tests) for `ChatAnthropic` and `ChatBedrock` so compliance-heavy teams don't have to verify the capture path themselves.
-- [ ] **Reranker audit** — capture the reranker step for pipelines that use one (Cohere / Jina / cross-encoders), so the audit record tells the story of *why* a chunk ended up in the final context, not just *which* chunk.
-- [ ] **Signature coverage v2** — opt-in stricter signature that also covers `similarity_score` and reranker outputs, for workspaces that need retrieval-level integrity, not just answer-level integrity.
+- [ ] **BYO object storage.** Write the raw query / chunks / answer payload to S3 / GCS / Azure Blob under a customer-owned KMS key, so Supabase only holds metadata and the signature. Keeps sensitive text out of the shared database entirely.
+- [ ] **PII redaction pre-audit.** Opt-in hook that runs a local regex + NER pass over the query and retrieved chunks before the record is signed, so audit trails don't become a secondary PII leak.
+- [ ] **Anthropic and Bedrock parity.** The LangChain integration already works with any chat model, but we want first-class coverage (and fixture tests) for `ChatAnthropic` and `ChatBedrock` so compliance-heavy teams don't have to verify the capture path themselves.
+- [ ] **Reranker audit.** Capture the reranker step for pipelines that use one (Cohere / Jina / cross-encoders), so the audit record tells the story of *why* a chunk ended up in the final context, not just *which* chunk.
+- [ ] **Signature coverage v2.** Opt-in stricter signature that also covers `similarity_score` and reranker outputs, for workspaces that need retrieval-level integrity, not just answer-level integrity.
 
-Have a use case that isn't on this list? Open a GitHub issue or discussion — the roadmap is driven by what users actually need, not what's on my whiteboard.
+Have a use case that isn't on this list? Open a GitHub issue or discussion; the roadmap is driven by what users actually need, not what's on my whiteboard.
 
 ## License
 

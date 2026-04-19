@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>ragcompliance — audit trail middleware for RAG in regulated industries</title>
-<meta name="description" content="Drop-in LangChain and LlamaIndex middleware that logs, signs, and surfaces every retrieval–generation chain. Built for teams that have to answer auditors." />
+<title>ragcompliance: audit trail middleware for RAG in regulated industries</title>
+<meta name="description" content="Drop-in LangChain and LlamaIndex middleware that logs, signs, and surfaces every retrieval-to-generation chain. Built for teams that have to answer auditors." />
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght,SOFT,WONK@0,9..144,300..700,0..100,0..1;1,9..144,300..700,0..100,0..1&family=JetBrains+Mono:ital,wght@0,400..700;1,400..600&display=swap" rel="stylesheet">
@@ -788,7 +788,9 @@
 
 <div class="strip">
   <div class="strip-inner">
-    <span>v0.1.4 on PyPI</span>
+    <a href="https://pypi.org/project/ragcompliance/" target="_blank" rel="noopener" style="color: inherit; text-decoration: none; display: inline-flex; align-items: center; gap: 8px;"><img src="https://img.shields.io/pypi/v/ragcompliance.svg?label=pypi&amp;color=e8c88a&amp;labelColor=181612&amp;style=flat-square" alt="PyPI version" style="vertical-align: middle; height: 18px;" /></a>
+    <span class="dot">●</span>
+    <a href="https://github.com/dakshtrehan/ragcompliance/actions/workflows/ci.yml" target="_blank" rel="noopener" style="color: inherit; text-decoration: none; display: inline-flex; align-items: center;"><img src="https://img.shields.io/github/actions/workflow/status/dakshtrehan/ragcompliance/ci.yml?branch=main&amp;label=ci&amp;color=3a6846&amp;labelColor=181612&amp;style=flat-square" alt="CI status" style="vertical-align: middle; height: 18px;" /></a>
     <span class="dot">●</span>
     <span>LangChain + LlamaIndex</span>
     <span class="dot">●</span>
@@ -808,7 +810,7 @@
   <a href="#top" class="mark">
     <span class="seal" aria-hidden="true"></span>
     <span>ragcompliance</span>
-    <span class="ver">v0.1.4</span>
+    <a href="https://pypi.org/project/ragcompliance/" target="_blank" rel="noopener" style="display: inline-flex; align-items: center; text-decoration: none;" aria-label="Latest PyPI version"><img src="https://img.shields.io/pypi/v/ragcompliance.svg?label=&amp;color=3a352c&amp;labelColor=dcd1b6&amp;style=flat-square" alt="Latest version on PyPI" style="vertical-align: middle; height: 18px; margin-left: 8px;" /></a>
   </a>
   <ul>
     <li><a href="#problem">Why</a></li>
@@ -816,6 +818,7 @@
     <li><a href="#integrate">Integrate</a></li>
     <li><a href="#capabilities">Capabilities</a></li>
     <li><a href="#selfhost">Self-host</a></li>
+    <li><a href="#faq">FAQ</a></li>
     <li><a href="docs.html">Docs</a></li>
   </ul>
   <a class="cta" href="https://github.com/dakshtrehan/ragcompliance" target="_blank" rel="noopener">
@@ -836,7 +839,7 @@
             Proof for <em>every</em> answer<br>your RAG ever gave.
           </h1>
           <p class="hero-sub">
-            ragcompliance is drop-in middleware for LangChain and LlamaIndex that logs the full chain — query, retrieved chunks with source URLs and similarity scores, the LLM answer, model name, latency — signs it with SHA-256, and writes one row per invocation to your own Supabase, behind row-level security per workspace. No chain rewrites. No black box.
+            ragcompliance is drop-in middleware for LangChain and LlamaIndex that logs the full chain (query, retrieved chunks with source URLs and similarity scores, the LLM answer, model name, latency), signs it with SHA-256, and writes one row per invocation to your own Supabase, behind row-level security per workspace. No chain rewrites. No black box.
           </p>
           <div class="hero-actions">
             <div class="install" id="install" role="button" tabindex="0" aria-label="Copy install command">
@@ -850,7 +853,7 @@
             </a>
           </div>
           <div class="hero-meta">
-            <div><strong>126</strong>tests green</div>
+            <div><strong>152</strong>tests green</div>
             <div><strong>&lt;1ms</strong>handler overhead</div>
             <div><strong>MIT</strong>licensed</div>
           </div>
@@ -859,10 +862,10 @@
           </p>
         </div>
 
-        <div class="ledger" aria-label="Sample audit ledger">
+        <div class="ledger" aria-label="Example audit ledger, mock data shown">
           <div class="ledger-head">
-            <span class="title">rag_audit_logs · acme-prod</span>
-            <span class="stamp">verified</span>
+            <span class="title">rag_audit_logs · example</span>
+            <span class="stamp">mock data</span>
           </div>
           <div class="record" style="animation-delay: .15s">
             <span class="seq">#0041</span>
@@ -898,32 +901,46 @@
     </div>
   </section>
 
+  <!-- ─── COMPARISON STRIP ─── -->
+  <section aria-label="Where ragcompliance fits" style="padding: 28px 0; border-bottom: var(--stroke); background: var(--bg-2);">
+    <div class="wrap">
+      <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 32px; font-family: var(--mono); font-size: 12px; letter-spacing: 0.04em; color: var(--ink-2);">
+        <div><span style="display: block; font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--seal); margin-bottom: 6px;">Works with</span>LangChain, LlamaIndex</div>
+        <div><span style="display: block; font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--seal); margin-bottom: 6px;">Complements</span>LangSmith, Langfuse (observability stays separate from audit)</div>
+        <div><span style="display: block; font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--seal); margin-bottom: 6px;">Storage</span>Supabase (BYO object storage planned)</div>
+      </div>
+    </div>
+  </section>
+
   <!-- ─── PROBLEM ─── -->
   <section id="problem">
     <div class="wrap">
       <div class="section-tag">01 · The gap</div>
       <h2 class="section-head">RAG doesn't fail in the model.<br>It fails in the <em>audit.</em></h2>
       <p class="section-lede" style="margin-bottom: 72px;">
-        In regulated industries — finance, healthcare, legal, insurance — the question is never "is your retrieval good?" It's "can you prove, for any given answer on any given day, which document was cited, what the model saw, and that no one tampered with it since?" Most RAG stacks can't.
+        In regulated industries (finance, healthcare, legal, insurance) the question is never "is your retrieval good?" It's "can you prove, for any given answer on any given day, which document was cited, what the model saw, and that no one tampered with it since?" Most RAG stacks can't.
       </p>
 
       <div class="problem-grid">
         <div>
-          <div class="stat">40–60<span style="font-size: 0.6em;">%</span></div>
-          <div class="stat-note">of enterprise RAG pilots never reach production, blocked by governance review.</div>
+          <div class="stat">one<span style="font-size: 0.5em;"> row</span></div>
+          <div class="stat-note">per chain invocation. Signed. Queryable. That's what an auditor actually wants.</div>
         </div>
         <div class="quotes">
+          <p class="section-lede" style="margin-bottom: 24px; font-style: italic;">
+            The kinds of questions compliance, internal audit, and GRC teams actually bring to a RAG system in regulated industries:
+          </p>
           <div class="quote">
             "Show me the retrieval-to-answer chain for every invocation in Q1, and prove it hasn't been modified."
-            <cite>— Internal audit, tier-1 bank</cite>
+            <cite>the audit-reconstruction ask</cite>
           </div>
           <div class="quote">
-            "We need one row per query. Source documents, chunk IDs, the answer verbatim. And row-level security across tenants."
-            <cite>— Compliance, health-tech SaaS</cite>
+            "One row per query. Source documents, chunk IDs, the answer verbatim. And row-level security across tenants."
+            <cite>the evidence-shape ask</cite>
           </div>
           <div class="quote">
-            "If your answer changes tomorrow, I want to know exactly what changed. Model, prompt, source — all of it."
-            <cite>— GRC lead, fintech</cite>
+            "If your answer changes tomorrow, I want to know exactly what changed. Model, prompt, source, all of it."
+            <cite>the answer-drift ask</cite>
           </div>
         </div>
       </div>
@@ -936,7 +953,7 @@
       <div class="section-tag">02 · What it captures</div>
       <h2 class="section-head">One row per chain.<br>Signed, <em>stored,</em> surfaced.</h2>
       <p class="section-lede">
-        Left: what your chain normally leaves behind. Right: what ragcompliance writes to your warehouse. No wrappers, no forks — just a callback handler passed through LangChain's <code style="font-family:var(--mono); color:var(--seal);">config={"callbacks":[handler]}</code> or LlamaIndex's <code style="font-family:var(--mono); color:var(--seal);">CallbackManager</code>.
+        Left: what your chain normally leaves behind. Right: what ragcompliance writes to your warehouse. No wrappers, no forks, just a callback handler passed through LangChain's <code style="font-family:var(--mono); color:var(--seal);">config={"callbacks":[handler]}</code> or LlamaIndex's <code style="font-family:var(--mono); color:var(--seal);">CallbackManager</code>.
       </p>
 
       <div class="split">
@@ -946,13 +963,13 @@
           <div class="ghost">
             <div>› chain.invoke("Does §4.2 cover indemnification?")</div>
             <div>› "Yes, section 4.2 obligates Party A to indemnify…"</div>
-            <div class="muted">› — no source, no chunk, no signature, no row —</div>
-            <div class="muted">› — compliance team: no.</div>
+            <div class="muted">› ... no source, no chunk, no signature, no row ...</div>
+            <div class="muted">› ... compliance team: no.</div>
           </div>
         </div>
         <div>
           <h3>With ragcompliance</h3>
-          <p class="sub">One audited row, chained by signature.</p>
+          <p class="sub">One audited row, chained by signature. <span style="color: var(--ink-dim); font-style: italic;">(example, mock data)</span></p>
           <div class="annot-record">{<br>
             &nbsp;&nbsp;<span class="k">"id"</span>: <span class="s">"c4e91…"</span>,<br>
             &nbsp;&nbsp;<span class="k">"session_id"</span>: <span class="s">"user-abc"</span>,<br>
@@ -1037,16 +1054,16 @@ response = query_engine.query(<span class="str">"Does §4.2 cover indemnificatio
   <section id="capabilities">
     <div class="wrap">
       <div class="section-tag">04 · Capabilities</div>
-      <h2 class="section-head">What ships in v0.1.4.<br>All production-hardened. All <em>tested.</em></h2>
+      <h2 class="section-head">What ships today.<br>All production-hardened. All <em>tested.</em></h2>
       <p class="section-lede" style="margin-bottom: 48px;">
-        Every feature below exists because a compliance team, an SRE on-call, or a pilot customer asked for it. No vapor. 145 tests green, including a dedicated batch and concurrency suite.
+        Every feature below exists because a compliance team, an SRE on-call, or a power user asked for it. No vapor. 152 tests green, including a dedicated batch and concurrency suite and a retriever-chunk regression suite for <code style="font-family:var(--mono);color:var(--seal);">langchain-core &gt;= 1.3.0</code>.
       </p>
 
       <div class="caps">
         <article class="cap">
           <div class="cap-num">01</div>
           <h4>Drop-in callback handlers</h4>
-          <p>LangChain LCEL-safe. <strong>Batch- and concurrency-safe as of v0.1.4</strong> — share one handler across <span class="kbd">chain.batch([...])</span> and concurrent <span class="kbd">chain.invoke()</span> calls. LlamaIndex via CallbackManager on SYNTHESIZE events.</p>
+          <p>LangChain LCEL-safe. <strong>Batch- and concurrency-safe as of v0.1.4:</strong> share one handler across <span class="kbd">chain.batch([...])</span> and concurrent <span class="kbd">chain.invoke()</span> calls. LlamaIndex via CallbackManager on SYNTHESIZE events.</p>
         </article>
         <article class="cap">
           <div class="cap-num">02</div>
@@ -1066,7 +1083,7 @@ response = query_engine.query(<span class="str">"Does §4.2 cover indemnificatio
         <article class="cap">
           <div class="cap-num">05</div>
           <h4>OIDC SSO for the dashboard</h4>
-          <p>Four env vars and SSO turns on. Google Workspace, Okta, Auth0, Entra, Authentik — any standards OIDC. Domain allowlist optional.</p>
+          <p>Four env vars and SSO turns on. Google Workspace, Okta, Auth0, Entra, Authentik, any standards OIDC. Domain allowlist optional.</p>
         </article>
         <article class="cap">
           <div class="cap-num">06</div>
@@ -1086,7 +1103,7 @@ response = query_engine.query(<span class="str">"Does §4.2 cover indemnificatio
         <article class="cap">
           <div class="cap-num">09</div>
           <h4>Live-mode readiness probe</h4>
-          <p><span class="kbd">/health/billing</span> flags the classic paste errors — <span class="kbd">prod_…</span> where <span class="kbd">price_…</span> belongs, missing webhook secret, localhost base URL in live mode — before a customer finds them on Saturday night.</p>
+          <p><span class="kbd">/health/billing</span> flags the classic paste errors (<span class="kbd">prod_…</span> where <span class="kbd">price_…</span> belongs, missing webhook secret, localhost base URL in live mode) before a customer finds them on Saturday night.</p>
         </article>
       </div>
     </div>
@@ -1101,7 +1118,7 @@ response = query_engine.query(<span class="str">"Does §4.2 cover indemnificatio
         <strong>ragcompliance</strong> is MIT-licensed middleware. Clone it, <span class="kbd">pip install</span> it, point it at your Supabase, and every feature on this page is yours. No paid tier, no call-home, no telemetry, no per-seat fees.
       </p>
       <p class="section-lede" style="margin-top: 0.75rem;">
-        If you'd rather not run it yourself, I offer a few kinds of paid help <em>around</em> the project — integration reviews, SOC 2 evidence prep, custom features on contract, and an operated dashboard under your own domain. These are engagements with the author, not a locked tier of the codebase.
+        If you'd rather not run it yourself, I offer a few kinds of paid help <em>around</em> the project: integration reviews, SOC 2 evidence prep, custom features on contract, and an operated dashboard under your own domain. These are engagements with the author, not a locked tier of the codebase.
       </p>
       <div style="margin-top: 2rem;">
         <a class="plan-cta" href="mailto:daksh.trehan@hotmail.com?subject=RAGCompliance" style="display: inline-flex;">
@@ -1135,9 +1152,59 @@ response = query_engine.query(<span class="str">"Does §4.2 cover indemnificatio
         <div><span class="marker">✓</span><span>OIDC SSO on the dashboard</span><span class="tag">v0.1.3</span></div>
         <div><span class="marker">✓</span><span>Stripe live-mode readiness probe</span><span class="tag">v0.1.3</span></div>
         <div><span class="marker">✓</span><span>Batch- and concurrency-safe shared handler (<span class="kbd">chain.batch</span>, threads, asyncio)</span><span class="tag">v0.1.4</span></div>
-        <div><span class="marker">✓</span><span>Defensive <span class="kbd">storage.save()</span> wrapping — a custom backend that raises can't take the chain down</span><span class="tag">v0.1.4</span></div>
+        <div><span class="marker">✓</span><span>Defensive <span class="kbd">storage.save()</span> wrapping: a custom backend that raises can't take the chain down</span><span class="tag">v0.1.4</span></div>
         <div class="planned"><span class="marker">○</span><span>BYO object storage for source documents (S3, GCS, R2)</span><span class="tag">planned</span></div>
         <div class="planned"><span class="marker">○</span><span>PII redaction policies (email, phone, custom regex) per workspace</span><span class="tag">planned</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─── FAQ ─── -->
+  <section id="faq">
+    <div class="wrap">
+      <div class="section-tag">07 · Honest answers</div>
+      <h2 class="section-head">Questions you'd ask before <em>adopting</em> this.</h2>
+      <p class="section-lede" style="margin-bottom: 48px;">
+        The first things compliance, security, and platform teams ask when they look at ragcompliance for real. Plain answers, no hedging.
+      </p>
+
+      <div style="display: grid; gap: 28px; max-width: 80ch;">
+        <div>
+          <h3 style="font-family: var(--serif); font-style: italic; font-weight: 400; font-size: 22px; margin: 0 0 10px; color: var(--ink);">Isn't this just LangSmith?</h3>
+          <p style="font-family: var(--mono); font-size: 14px; line-height: 1.7; color: var(--ink-2); margin: 0;">
+            No. LangSmith (and Langfuse, Helicone) are observability tools. They help you debug why a chain behaved a certain way. ragcompliance is an audit tool. It produces one signed row per invocation that a compliance reviewer can spot-check a year later and verify the answer hasn't been modified. Different audience (compliance instead of the engineering team), different artefact (immutable signed record instead of traces), different storage model (your Supabase under RLS instead of a SaaS trace store). Most teams in regulated industries need both.
+          </p>
+        </div>
+        <div>
+          <h3 style="font-family: var(--serif); font-style: italic; font-weight: 400; font-size: 22px; margin: 0 0 10px; color: var(--ink);">Does it handle PHI / PII?</h3>
+          <p style="font-family: var(--mono); font-size: 14px; line-height: 1.7; color: var(--ink-2); margin: 0;">
+            Today the handler writes the query verbatim, chunks verbatim, and the answer verbatim. If any of those can contain PHI or PII and your Supabase project isn't configured for that, <strong>do not</strong> enable ragcompliance against production traffic yet. PII redaction pre-audit is on the near-term roadmap (opt-in regex + NER pass before the signature is computed). For PHI specifically, pair with a HIPAA-eligible Supabase deployment and your own BAA. Full BYO object storage with customer-held KMS keys is the stricter model and is planned.
+          </p>
+        </div>
+        <div>
+          <h3 style="font-family: var(--serif); font-style: italic; font-weight: 400; font-size: 22px; margin: 0 0 10px; color: var(--ink);">Is the SHA-256 chain signature a legal signature?</h3>
+          <p style="font-family: var(--mono); font-size: 14px; line-height: 1.7; color: var(--ink-2); margin: 0;">
+            It is not a digital signature in the eIDAS / DSA / advanced electronic signature sense. It is a cryptographic integrity tag over <code style="font-family:var(--mono);color:var(--seal);">query + chunks + answer</code> that lets an auditor detect post-hoc tampering on any of those three fields without needing access to the original model run. Courts and regulators treat it as evidence of integrity, not identity. If you need non-repudiation on top (who wrote the record), pair with signed inserts at the database layer or S3 Object Lock on the raw payload store.
+          </p>
+        </div>
+        <div>
+          <h3 style="font-family: var(--serif); font-style: italic; font-weight: 400; font-size: 22px; margin: 0 0 10px; color: var(--ink);">Is the audit log encrypted at rest?</h3>
+          <p style="font-family: var(--mono); font-size: 14px; line-height: 1.7; color: var(--ink-2); margin: 0;">
+            Yes, because Supabase (the default storage) encrypts all rows at rest with AES-256 and all traffic in transit with TLS 1.2+. Row-level security isolates rows per <code style="font-family:var(--mono);color:var(--seal);">workspace_id</code> so a multi-tenant install cannot cross-read. If your threat model needs customer-held keys, the planned BYO object storage path lets you write the raw payload to S3 / GCS / Azure Blob under your own KMS key and keep only metadata + signature in Supabase.
+          </p>
+        </div>
+        <div>
+          <h3 style="font-family: var(--serif); font-style: italic; font-weight: 400; font-size: 22px; margin: 0 0 10px; color: var(--ink);">Supabase only?</h3>
+          <p style="font-family: var(--mono); font-size: 14px; line-height: 1.7; color: var(--ink-2); margin: 0;">
+            Supabase is the default because it gives you Postgres, row-level security, and a managed API out of the box, so a self-host path is a single SQL migration plus env vars. The <code style="font-family:var(--mono);color:var(--seal);">AuditStorage</code> interface is swappable, though. Anything that can persist a dict of the record shape and query it back works; <code style="font-family:var(--mono);color:var(--seal);">storage.save()</code> is wrapped defensively so a custom backend that raises cannot take the chain down. A Postgres-direct and a BYO object storage backend are on the roadmap.
+          </p>
+        </div>
+        <div>
+          <h3 style="font-family: var(--serif); font-style: italic; font-weight: 400; font-size: 22px; margin: 0 0 10px; color: var(--ink);">What about Haystack, DSPy, or a raw OpenAI call?</h3>
+          <p style="font-family: var(--mono); font-size: 14px; line-height: 1.7; color: var(--ink-2); margin: 0;">
+            LangChain and LlamaIndex are the two shipped handlers because they cover most of what teams put in front of auditors today. For anything else, the capture shape is small: build the same <code style="font-family:var(--mono);color:var(--seal);">AuditRecord</code> at your own boundary (query, retrieved chunks, answer, model, latency), hand it to <code style="font-family:var(--mono);color:var(--seal);">storage.save(...)</code>, and you get the same signed row and the same SOC 2 evidence export. Haystack and DSPy first-class handlers are on the roadmap if there is pull.
+          </p>
+        </div>
       </div>
     </div>
   </section>
@@ -1205,7 +1272,7 @@ response = query_engine.query(<span class="str">"Does §4.2 cover indemnificatio
     </div>
     <div class="bottom">
       <div>© 2026 Daksh Trehan · MIT Licensed</div>
-      <div>Built in public. v0.1.4 · 145 tests green.</div>
+      <div>Built in public. <a href="https://github.com/dakshtrehan/ragcompliance/blob/main/CHANGELOG.md" target="_blank" rel="noopener" style="color: inherit;">Changelog</a> · 152 tests green.</div>
     </div>
   </div>
 </footer>
