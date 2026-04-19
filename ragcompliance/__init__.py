@@ -9,7 +9,7 @@ from .handler import RAGComplianceHandler
 from .models import AuditRecord, RetrievedChunk
 from .storage import AuditStorage
 
-__version__ = "0.1.5"
+__version__ = "0.1.6"
 __all__ = [
     "AuditRecord",
     "AuditStorage",

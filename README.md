@@ -294,7 +294,7 @@ python -m ragcompliance.soc2 \
   --workspace acme-prod \
   --start 2026-01-01 \
   --end 2026-03-31 \
-  --sample 10 --seed 42 \
+  --sample 25 --seed 42 \
   --out acme-q1-2026-evidence.md
 ```
 
@@ -309,10 +309,22 @@ md = generate_report(
     workspace_id="acme-prod",
     start="2026-01-01",
     end="2026-03-31",
-    sample_size=10,
+    sample_size=25,
     seed=42,
 )
 ```
+
+### Sample size and confidence
+
+The evidence report recomputes SHA-256 signatures on a random sample of records from the period. The default is 25 records, suitable for a quarterly compliance spot-check. For deeper due-diligence runs, raise it:
+
+```bash
+python -m ragcompliance.soc2 --workspace acme-prod \
+    --start 2026-01-01 --end 2026-03-31 \
+    --sample 100 --seed 42
+```
+
+Sampling is random but seeded for reproducibility via `--seed`, so an auditor re-running with the same inputs gets the same sample. A given run may not surface a specific tampered record if the tamper rate is low and the sample size is small; the relationship is the standard hypergeometric one. For exhaustive verification across the full period, pass a `sample_size` equal to the total record count or loop `_verify_signature` over every record programmatically.
 
 ## Why RAGCompliance
 

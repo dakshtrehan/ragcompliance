@@ -358,7 +358,7 @@ def generate_report(
     workspace_id: str,
     start: str | datetime,
     end: str | datetime,
-    sample_size: int = 5,
+    sample_size: int = 25,
     seed: int | None = None,
     config: RAGComplianceConfig | None = None,
     storage: AuditStorage | None = None,
@@ -391,7 +391,7 @@ def _main(argv: list[str] | None = None) -> int:
     parser.add_argument("--workspace", required=True, help="Workspace ID")
     parser.add_argument("--start", required=True, help="ISO date, e.g. 2026-01-01")
     parser.add_argument("--end", required=True, help="ISO date, e.g. 2026-03-31")
-    parser.add_argument("--sample", type=int, default=5, help="Records to sample")
+    parser.add_argument("--sample", type=int, default=25, help="Records to sample")
     parser.add_argument("--seed", type=int, default=None, help="Deterministic sample seed")
     parser.add_argument("--out", default=None, help="Output file (Markdown). Defaults to stdout.")
 

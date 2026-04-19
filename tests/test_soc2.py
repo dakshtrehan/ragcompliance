@@ -2,12 +2,14 @@
 from __future__ import annotations
 
 import hashlib
+import inspect
 import json
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
 import pytest
 
+from ragcompliance import soc2 as soc2_mod
 from ragcompliance.soc2 import (
     CONTROLS,
     ReportStats,
@@ -396,3 +398,28 @@ class TestGenerateReport:
                 end="2026-01-31",
                 storage=fake,
             )
+
+
+class TestDefaults:
+    """Regression guard for public-API defaults. A reviewer or auditor
+    re-running ``python -m ragcompliance.soc2`` without a ``--sample``
+    flag should get a sample size that is meaningful, not a symbolic 5.
+    Changing this default again is a semver-relevant decision; this test
+    exists so that change is intentional, not accidental."""
+
+    def test_generate_report_default_sample_size_is_25(self):
+        sig = inspect.signature(generate_report)
+        assert sig.parameters["sample_size"].default == 25, (
+            "SOC 2 evidence default sample size must be 25 — see v0.1.6 "
+            "CHANGELOG entry. If you are intentionally changing this, "
+            "update the CHANGELOG, README, and docs site in the same "
+            "commit."
+        )
+
+    def test_cli_default_sample_size_matches_generate_report(self):
+        """CLI parser --sample default must match generate_report's default."""
+        src = inspect.getsource(soc2_mod._main)
+        assert 'default=25' in src, (
+            "CLI --sample default must be 25 to match generate_report. "
+            "Update both in the same commit or add a shared constant."
+        )

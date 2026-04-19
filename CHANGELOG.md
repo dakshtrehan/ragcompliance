@@ -9,11 +9,27 @@ The format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.
 ## [0.1.6] — 2026-04-19
 
 ### Changed
+- SOC 2 evidence report default sample size raised from 5 to 25. This
+  matches what a real compliance reviewer expects to see on a quarterly
+  spot-check. The previous default of 5 was symbolic; on a workspace
+  with 50k records it gave roughly a 1-in-10,000 shot of surfacing a
+  rare tamper event. The CLI default (`--sample`) and the Python API
+  default (`generate_report(..., sample_size=25)`) both updated.
 - README and docs site now distinguish "handler overhead in isolation"
   (<1ms, ~38µs p50) from "end-to-end chain latency" (dominated by
   retriever and LLM). No behavior change; the prior claim was correct
   but ambiguous enough that a reader could misread the full-chain
   number as the handler's contribution.
+
+### Added
+- README "Sample size and confidence" subsection explaining the
+  hypergeometric tradeoff between sample size and detection probability
+  for SOC 2 evidence audits, plus a programmatic note on exhaustive
+  verification for deeper due-diligence runs.
+- 2 new tests in `tests/test_soc2.py::TestDefaults` that assert the
+  `generate_report` default and the CLI `--sample` default stay at 25.
+  Regression guards so a future drive-by change does not silently
+  revert the default and surface stale evidence to auditors.
 
 ## [0.1.5] — 2026-04-19
 
@@ -194,7 +210,8 @@ The format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.
 - `RAGComplianceConfig` with `from_env()` and sensible defaults so the
   middleware works out of the box in dev.
 
-[Unreleased]: https://github.com/dakshtrehan/ragcompliance/compare/v0.1.5...HEAD
+[Unreleased]: https://github.com/dakshtrehan/ragcompliance/compare/v0.1.6...HEAD
+[0.1.6]: https://github.com/dakshtrehan/ragcompliance/releases/tag/v0.1.6
 [0.1.5]: https://github.com/dakshtrehan/ragcompliance/releases/tag/v0.1.5
 [0.1.4]: https://github.com/dakshtrehan/ragcompliance/releases/tag/v0.1.4
 [0.1.3]: https://github.com/dakshtrehan/ragcompliance/releases/tag/v0.1.3

@@ -870,15 +870,18 @@ rd: <span class="cls">BillingReadiness</span> = <span class="cls">BillingManager
   --workspace acme-prod \
   --start 2026-01-01 \
   --end 2026-03-31 \
-  --sample 10 --seed 42 \
+  --sample 25 --seed 42 \
   --out acme-q1-2026-evidence.md'>Copy</button><code><span class="bash-p">$</span> python -m ragcompliance.soc2 \
     --workspace acme-prod \
     --start 2026-01-01 \
     --end 2026-03-31 \
-    --sample 10 --seed 42 \
+    --sample 25 --seed 42 \
     --out acme-q1-2026-evidence.md</code></pre>
 
   <p>The report pulls records straight from <code>rag_audit_logs</code>, computes integrity stats (signed vs unsigned, unique sessions, avg latency, models observed), recomputes the SHA-256 signature on a random sample so an auditor can spot-check independently, and renders the control matrix and methodology section. It is not itself a SOC 2 attestation — only a licensed auditor can issue one — but it cuts audit-prep back-and-forth from weeks to minutes.</p>
+
+  <h3 id="soc2-sample">Sample size and confidence</h3>
+  <p>The evidence report recomputes SHA-256 signatures on a random sample of records from the period. The default is 25 records, suitable for a quarterly compliance spot-check. For deeper due-diligence runs, raise it by passing <code>--sample 100</code> or higher. Sampling is random but seeded via <code>--seed</code> for reproducibility, so an auditor re-running with the same inputs gets the same sample. A given run may not surface a specific tampered record if the tamper rate is low and the sample size is small; the relationship is the standard hypergeometric one. For exhaustive verification across the full period, pass a <code>sample_size</code> equal to the total record count or loop <code>_verify_signature</code> over every record programmatically.</p>
 
   <p>Programmatic access is the same pipeline without argparse:</p>
 
@@ -888,7 +891,7 @@ md = generate_report(
     workspace_id="acme-prod",
     start="2026-01-01",
     end="2026-03-31",
-    sample_size=10,
+    sample_size=25,
     seed=42,
 )'>Copy</button><code><span class="kw">from</span> ragcompliance.soc2 <span class="kw">import</span> generate_report
 
@@ -896,7 +899,7 @@ md = generate_report(
     workspace_id=<span class="str">"acme-prod"</span>,
     start=<span class="str">"2026-01-01"</span>,
     end=<span class="str">"2026-03-31"</span>,
-    sample_size=<span class="num">10</span>,
+    sample_size=<span class="num">25</span>,
     seed=<span class="num">42</span>,
 )</code></pre>
 
@@ -1008,7 +1011,7 @@ CMD ["uvicorn", "ragcompliance.app:app", "--host", "0.0.0.0", "--port", "8000"]'
     workspace_id: <span class="cls">str</span>,
     start: <span class="cls">str</span>,                     <span class="cm"># ISO date</span>
     end: <span class="cls">str</span>,                       <span class="cm"># ISO date</span>
-    sample_size: <span class="cls">int</span> = <span class="num">10</span>,
+    sample_size: <span class="cls">int</span> = <span class="num">25</span>,
     seed: <span class="cls">int</span> | <span class="kw">None</span> = <span class="kw">None</span>,
     storage: <span class="cls">AuditStorage</span> | <span class="kw">None</span> = <span class="kw">None</span>,
 ) -> <span class="cls">str</span></code></pre>
