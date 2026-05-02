@@ -834,7 +834,7 @@
   "applicationSubCategory": "AI compliance and audit middleware",
   "operatingSystem": "Linux, macOS, Windows",
   "programmingLanguage": "Python",
-  "softwareVersion": "0.1.7",
+  "softwareVersion": "0.1.8",
   "license": "https://opensource.org/licenses/MIT",
   "url": "https://www.dakshtrehan.com/ragcompliance/",
   "downloadUrl": "https://pypi.org/project/ragcompliance/",
@@ -850,6 +850,72 @@
     "priceCurrency": "USD"
   },
   "keywords": "RAG audit, RAG compliance, LangChain audit logging, LlamaIndex audit, SOC 2 for LLM, tamper-evident LLM logs, AI audit trail, retrieval-augmented generation compliance"
+}
+</script>
+
+<!-- Structured data: FAQPage for Google rich results -->
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  "mainEntity": [
+    {
+      "@type": "Question",
+      "name": "Isn't this just LangSmith?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "No. LangSmith, Langfuse, and Helicone are observability tools that help debug why a chain behaved a certain way. RAGCompliance is an audit tool that produces one signed row per invocation a compliance reviewer can spot-check a year later and verify the answer has not been modified. Different audience (compliance instead of engineering), different artifact (immutable signed record instead of traces), different storage model (your Supabase under row-level security instead of a SaaS trace store). Most teams in regulated industries need both."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "LangChain 1.3 ships PIIMiddleware natively. How is RAGCompliance redaction different?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "They solve different problems and they compose. PIIMiddleware redacts what the LLM sees, so sensitive values never reach the model. RAGCompliance redacts what the audit log persists, so sensitive values never reach storage. You typically want both: redact pre-LLM with PIIMiddleware to control what crosses the model boundary, then redact pre-signature with RAGCompliance so the audit row a compliance reviewer pulls a year later cannot leak data either. The two passes operate on different copies of the payload and write to different surfaces."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Does RAGCompliance handle PHI and PII?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Yes, opt-in as of v0.1.8. Set RAGCOMPLIANCE_REDACT_PII=true and the handler runs a regex pass before signing and storing the record. Nine built-in patterns ship: email, SSN with SSA never-issued prefix exclusion, Luhn-validated credit card, US phone, IPv4, AWS / OpenAI / Anthropic API keys, and bearer tokens. Custom Pattern objects can be registered on top. The SHA-256 chain signature is computed over the redacted payload, so an auditor reproducing the signature never needs access to raw secrets. For PHI, pair with a HIPAA-eligible Supabase deployment and your own BAA."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Is the SHA-256 chain signature a legal signature?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "It is not a digital signature in the eIDAS, DSA, or advanced electronic signature sense. It is a cryptographic integrity tag over query plus retrieved chunks plus answer that lets an auditor detect post-hoc tampering on any of those three fields without needing access to the original model run. Courts and regulators treat it as evidence of integrity, not identity. If non-repudiation is needed (who wrote the record), pair with signed inserts at the database layer or S3 Object Lock on the raw payload store."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Is the audit log encrypted at rest?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Yes, because Supabase, the default storage, encrypts all rows at rest with AES-256 and all traffic in transit with TLS 1.2 or higher. Row-level security isolates rows per workspace_id so a multi-tenant install cannot cross-read. For threat models needing customer-held keys, the planned BYO object storage path lets you write the raw payload to S3, GCS, or Azure Blob under your own KMS key and keep only metadata and signature in Supabase."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Is RAGCompliance Supabase-only?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Supabase is the default because it gives you Postgres, row-level security, and a managed API out of the box, so the self-host path is a single SQL migration plus environment variables. The AuditStorage interface is swappable. Anything that can persist a dict of the record shape and query it back works. storage.save() is wrapped defensively so a custom backend that raises cannot take the chain down. Postgres-direct and BYO object storage backends are on the roadmap."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "What about Haystack, DSPy, or a raw OpenAI call?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "LangChain and LlamaIndex are the two shipped handlers because they cover most of what teams put in front of auditors today. For anything else, the capture shape is small: build the same AuditRecord at your own boundary (query, retrieved chunks, answer, model, latency), hand it to storage.save(), and you get the same signed row and the same SOC 2 evidence export. Haystack and DSPy first-class handlers are on the roadmap if there is pull."
+      }
+    }
+  ]
 }
 </script>
 </head>
@@ -874,6 +940,8 @@
     <span>OIDC SSO</span>
     <span class="dot">●</span>
     <span>Stripe live-mode readiness probe</span>
+    <span class="dot">●</span>
+    <span>PII / PHI redaction</span>
   </div>
 </div>
 
@@ -927,7 +995,7 @@
             </a>
           </div>
           <div class="hero-meta">
-            <div><strong>152</strong>tests green</div>
+            <div><strong>171</strong>tests green</div>
             <div><strong>&lt;1ms</strong>handler overhead</div>
             <div><strong>MIT</strong>licensed</div>
           </div>
@@ -1133,7 +1201,7 @@ response = query_engine.query(<span class="str">"Does §4.2 cover indemnificatio
       <div class="section-tag">04 · Capabilities</div>
       <h2 class="section-head">What ships today.<br>All production-hardened. All <em>tested.</em></h2>
       <p class="section-lede" style="margin-bottom: 48px;">
-        Every feature below exists because a compliance team, an SRE on-call, or a power user asked for it. No vapor. 152 tests green, including a dedicated batch and concurrency suite and a retriever-chunk regression suite for <code style="font-family:var(--mono);color:var(--seal);">langchain-core &gt;= 1.3.0</code>.
+        Every feature below exists because a compliance team, an SRE on-call, or a power user asked for it. No vapor. 171 tests green, including a dedicated batch and concurrency suite, a retriever-chunk regression suite for <code style="font-family:var(--mono);color:var(--seal);">langchain-core &gt;= 1.3.0</code>, and a 27-test PII / PHI redaction suite shipped in v0.1.8.
       </p>
 
       <div class="caps">
@@ -1181,6 +1249,11 @@ response = query_engine.query(<span class="str">"Does §4.2 cover indemnificatio
           <div class="cap-num">09</div>
           <h4>Live-mode readiness probe</h4>
           <p><span class="kbd">/health/billing</span> flags the classic paste errors (<span class="kbd">prod_…</span> where <span class="kbd">price_…</span> belongs, missing webhook secret, localhost base URL in live mode) before a customer finds them on Saturday night.</p>
+        </article>
+        <article class="cap">
+          <div class="cap-num">10</div>
+          <h4>PII / PHI redaction <span class="kbd" style="font-size: 11px;">v0.1.8</span></h4>
+          <p>Opt-in, off by default. Nine built-in patterns (email, SSN with SSA never-issued exclusion, Luhn-validated credit card, US phone, IPv4, AWS / OpenAI / Anthropic API keys, bearer tokens) plus custom <span class="kbd">Pattern</span> registration. The SHA-256 chain signature is computed over the <em>redacted</em> payload, so an auditor reproducing the signature never needs access to raw secrets. Per-record <span class="kbd">redaction_findings</span> hit counts surface to dashboards and SOC 2 reports without storing the raw value.</p>
         </article>
       </div>
     </div>
@@ -1233,8 +1306,14 @@ response = query_engine.query(<span class="str">"Does §4.2 cover indemnificatio
         <div><span class="marker">✓</span><span>Stripe live-mode readiness probe</span><span class="tag">v0.1.3</span></div>
         <div><span class="marker">✓</span><span>Batch- and concurrency-safe shared handler (<span class="kbd">chain.batch</span>, threads, asyncio)</span><span class="tag">v0.1.4</span></div>
         <div><span class="marker">✓</span><span>Defensive <span class="kbd">storage.save()</span> wrapping: a custom backend that raises can't take the chain down</span><span class="tag">v0.1.4</span></div>
+        <div><span class="marker">✓</span><span>Retriever-chunk capture fix for <span class="kbd">langchain-core &gt;= 1.3.0</span> (silent correctness bug fix)</span><span class="tag">v0.1.5</span></div>
+        <div><span class="marker">✓</span><span>SOC 2 evidence default sample size raised from 5 to 25; handler-overhead vs full-chain latency disambiguation</span><span class="tag">v0.1.6</span></div>
+        <div><span class="marker">✓</span><span><span class="kbd">SECURITY.md</span> + <span class="kbd">ragcompliance-selftest</span> CLI for clean-install verification + FAQ + dynamic shields.io badges</span><span class="tag">v0.1.7</span></div>
+        <div><span class="marker">✓</span><span>Opt-in PII / PHI redaction with 9 built-in patterns; signature computed over the redacted payload</span><span class="tag">v0.1.8</span></div>
         <div class="planned"><span class="marker">○</span><span>BYO object storage for source documents (S3, GCS, R2)</span><span class="tag">planned</span></div>
-        <div class="planned"><span class="marker">○</span><span>PII redaction policies (email, phone, custom regex) per workspace</span><span class="tag">planned</span></div>
+        <div class="planned"><span class="marker">○</span><span>NER-based redaction pass (in addition to regex patterns)</span><span class="tag">planned</span></div>
+        <div class="planned"><span class="marker">○</span><span>Postgres-direct storage backend (without Supabase)</span><span class="tag">planned</span></div>
+        <div class="planned"><span class="marker">○</span><span>Haystack and DSPy first-class handlers</span><span class="tag">planned</span></div>
       </div>
     </div>
   </section>
@@ -1256,9 +1335,15 @@ response = query_engine.query(<span class="str">"Does §4.2 cover indemnificatio
           </p>
         </div>
         <div>
+          <h3 style="font-family: var(--serif); font-style: italic; font-weight: 400; font-size: 22px; margin: 0 0 10px; color: var(--ink);">LangChain 1.3 ships <span class="kbd">PIIMiddleware</span> natively. How is this different?</h3>
+          <p style="font-family: var(--mono); font-size: 14px; line-height: 1.7; color: var(--ink-2); margin: 0;">
+            They solve different problems and they compose. <code style="font-family:var(--mono);color:var(--seal);">PIIMiddleware</code> redacts what the LLM sees, so sensitive values never reach the model in the first place. ragcompliance redacts what the audit log persists, so sensitive values never reach storage. You typically want both: redact pre-LLM with PIIMiddleware to control what crosses the model boundary, then redact pre-signature with ragcompliance so the audit row a compliance reviewer pulls a year later cannot leak data either. The two passes operate on different copies of the payload and write to different surfaces.
+          </p>
+        </div>
+        <div>
           <h3 style="font-family: var(--serif); font-style: italic; font-weight: 400; font-size: 22px; margin: 0 0 10px; color: var(--ink);">Does it handle PHI / PII?</h3>
           <p style="font-family: var(--mono); font-size: 14px; line-height: 1.7; color: var(--ink-2); margin: 0;">
-            Today the handler writes the query verbatim, chunks verbatim, and the answer verbatim. If any of those can contain PHI or PII and your Supabase project isn't configured for that, <strong>do not</strong> enable ragcompliance against production traffic yet. PII redaction pre-audit is on the near-term roadmap (opt-in regex + NER pass before the signature is computed). For PHI specifically, pair with a HIPAA-eligible Supabase deployment and your own BAA. Full BYO object storage with customer-held KMS keys is the stricter model and is planned.
+            As of v0.1.8, yes, opt-in. Set <code style="font-family:var(--mono);color:var(--seal);">RAGCOMPLIANCE_REDACT_PII=true</code> and the handler runs a regex pass before signing and storing the record. Nine built-in patterns ship: email, SSN (with SSA never-issued prefix exclusion), Luhn-validated credit card, US phone, IPv4, AWS / OpenAI / Anthropic API keys, bearer tokens. Custom <code style="font-family:var(--mono);color:var(--seal);">Pattern</code> objects can be registered on top. The SHA-256 chain signature is computed over the redacted payload, so an auditor reproducing the signature never needs access to raw secrets. For PHI specifically, pair with a HIPAA-eligible Supabase deployment and your own BAA. NER-based redaction (named-entity layer on top of regex) and BYO object storage with customer-held KMS keys are on the roadmap.
           </p>
         </div>
         <div>
@@ -1352,7 +1437,7 @@ response = query_engine.query(<span class="str">"Does §4.2 cover indemnificatio
     </div>
     <div class="bottom">
       <div>© 2026 Daksh Trehan · MIT Licensed</div>
-      <div>Built in public. <a href="https://github.com/dakshtrehan/ragcompliance/blob/main/CHANGELOG.md" target="_blank" rel="noopener" style="color: inherit;">Changelog</a> · 152 tests green.</div>
+      <div>Built in public. <a href="https://github.com/dakshtrehan/ragcompliance/blob/main/CHANGELOG.md" target="_blank" rel="noopener" style="color: inherit;">Changelog</a> · 171 tests green.</div>
     </div>
   </div>
 </footer>
