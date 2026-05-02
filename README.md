@@ -256,6 +256,50 @@ Audit writes are fire-and-forget by default. `save()` enqueues the record onto a
 
 If Supabase is unreachable, records buffer in memory up to `RAGCOMPLIANCE_ASYNC_MAX_QUEUE` (default 1000) and then drop with a log warning rather than leak memory. On normal process exit an `atexit` hook drains pending records within `RAGCOMPLIANCE_ASYNC_SHUTDOWN_TIMEOUT` seconds (default 5). You can also call `handler.storage.flush()` explicitly in tests or your own shutdown path. Set `RAGCOMPLIANCE_ASYNC_WRITES=false` if you need a strictly synchronous write (for example, tests that inspect storage mid-chain).
 
+## PII / PHI redaction
+
+In a regulated industry an audit log is, by construction, a perfect
+copy of every query a user has ever asked plus every chunk the
+retriever surfaced plus every word the LLM generated. A single SELECT
+against the audit table and an attacker has account numbers, patient
+identifiers, and internal documents at full fidelity. Set
+`RAGCOMPLIANCE_REDACT_PII=true` and the handler runs each record's
+query, retrieved chunks, and answer through a regex redactor BEFORE
+the chain signature is computed. Sensitive values never reach
+storage, and an auditor reproducing the SHA-256 from the persisted
+record never needs access to the raw secret.
+
+```bash
+RAGCOMPLIANCE_REDACT_PII=true
+RAGCOMPLIANCE_REDACTION_PATTERNS=email,ssn,credit_card,phone_us,ipv4,aws_access_key,openai_key,anthropic_key,bearer_token
+RAGCOMPLIANCE_REDACTION_REPLACEMENT=[REDACTED:{name}]
+```
+
+Built-in patterns: `email`, `ssn` (with the SSA never-issued prefix
+list), `credit_card` (Luhn-validated so chunk IDs do not false-
+positive), `phone_us` (requires at least one separator),
+`ipv4` (octet-bounded), `aws_access_key`, `openai_key`,
+`anthropic_key` (matched before `openai_key` because the longer
+prefix wins), `bearer_token`. Per-record hit counts land in
+`extra.redaction_findings` so the dashboard can surface a "this
+record had 3 PII findings" badge without ever persisting the raw
+value.
+
+Add custom patterns from Python:
+
+```python
+import re
+from ragcompliance import RAGComplianceHandler, Pattern, Redactor
+
+case_id = Pattern("case_id", re.compile(r"\bCASE-\d{4}\b"))
+redactor = Redactor(custom_patterns=[case_id])
+
+handler = RAGComplianceHandler(redactor=redactor)
+```
+
+Off by default. Upgrading from 0.1.7 is a no-op until you flip the
+flag.
+
 ## Anomaly alerts
 
 Set `RAGCOMPLIANCE_SLACK_WEBHOOK_URL` to a Slack incoming-webhook URL (or any compatible receiver: Discord, Teams via shim, your own HTTP endpoint) and the handler will fire async alerts when a chain looks unhealthy. Four rules today, all with env-configurable thresholds:

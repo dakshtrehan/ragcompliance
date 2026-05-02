@@ -6,6 +6,51 @@ The format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.
 
 ## [Unreleased]
 
+## [0.1.8] — 2026-05-02
+
+This release adds opt-in PII / PHI redaction inside the audit handler so
+sensitive values never reach storage. The chain signature is computed
+over the redacted payload, which means an auditor reproducing the
+SHA-256 from a persisted record never needs access to raw secrets.
+Off by default; turning it on is a one-line config change.
+
+### Added
+- `ragcompliance.redaction` module with a `Redactor` class and a
+  per-pattern hit registry. Built-in patterns: `email`, `ssn`,
+  `credit_card` (Luhn-validated), `phone_us`, `ipv4`,
+  `aws_access_key`, `openai_key`, `anthropic_key`, `bearer_token`.
+  Operators can register custom `Pattern` objects on top.
+- New config fields: `redact_pii: bool = False`,
+  `redaction_patterns: list[str] | None`,
+  `redaction_replacement: str = "[REDACTED:{name}]"`. All three are
+  bound to env vars (`RAGCOMPLIANCE_REDACT_PII`,
+  `RAGCOMPLIANCE_REDACTION_PATTERNS`,
+  `RAGCOMPLIANCE_REDACTION_REPLACEMENT`).
+- New `redactor` keyword on `RAGComplianceHandler.__init__` for
+  passing a fully constructed redactor (or any object with a
+  compatible `.redact()` method).
+- Per-record `extra["redaction_findings"]` dict surfaces a
+  per-pattern hit count so dashboards and SOC 2 evidence reports
+  can show which records had sensitive data and what kind, without
+  ever storing the raw value.
+- `tests/test_redaction.py`: 27 tests covering pattern correctness
+  (including SSN invalid-prefix exclusion, Luhn rejection of
+  non-cards, IPv4 octet bounds, anthropic/openai prefix priority),
+  redactor behavior (custom patterns, custom replacement, unknown
+  pattern raises), and end-to-end handler integration verifying the
+  signature recomputes from the redacted record alone.
+
+### Changed
+- `RAGComplianceHandler.on_chain_end` now runs the redactor (when
+  configured) BEFORE `_sign_chain`. Hot path is unchanged for
+  workspaces that leave `redact_pii=False` — `self.redactor` is
+  `None` and the redaction block short-circuits to a no-op.
+
+### Internal
+- `_bump(dst, src)` module-level helper in `handler.py` for merging
+  per-pattern hit counts. Kept module-private so the public API
+  surface is unchanged.
+
 ## [0.1.7] — 2026-04-19
 
 This release is a credibility and polish pass. No handler behaviour

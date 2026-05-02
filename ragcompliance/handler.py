@@ -34,6 +34,12 @@ from .storage import AuditStorage
 logger = logging.getLogger(__name__)
 
 
+def _bump(dst: dict, src: dict) -> None:
+    """Add per-pattern hit counts from src into dst in place."""
+    for k, v in src.items():
+        dst[k] = dst.get(k, 0) + v
+
+
 @dataclass
 class _RunState:
     """Per-invocation state for one root chain run.
@@ -90,12 +96,31 @@ class RAGComplianceHandler(BaseCallbackHandler):
         extra: dict[str, Any] | None = None,
         billing: Any | None = None,
         alerter: SlackAlerter | None = None,
+        redactor: Any | None = None,
     ):
         super().__init__()
         self.config = config or RAGComplianceConfig.from_env()
         self.storage = AuditStorage(self.config)
         self.session_id = session_id or str(uuid.uuid4())
         self.extra = extra or {}
+
+        # Optional PII / PHI redactor (added in 0.1.8). When the config
+        # flag is on we instantiate the default RegexRedactor; an
+        # operator can override by passing a fully constructed Redactor
+        # (or any object exposing redact_record_fields()). When off the
+        # attribute is None and on_chain_end short-circuits the
+        # redaction path entirely so 0.1.7 behavior is preserved bit-
+        # for-bit on the hot path.
+        if redactor is not None:
+            self.redactor = redactor
+        elif self.config.redact_pii:
+            from .redaction import Redactor
+            self.redactor = Redactor(
+                patterns=self.config.redaction_patterns,
+                replacement=self.config.redaction_replacement,
+            )
+        else:
+            self.redactor = None
 
         # Optional billing manager for quota + usage metering. Lazy import so
         # `stripe` only becomes required when billing features are used.
@@ -382,6 +407,36 @@ class RAGComplianceHandler(BaseCallbackHandler):
         if not state.llm_answer:
             state.llm_answer = self._coerce_answer(outputs)
 
+        # ----------------------------------------------------------- #
+        # PII / PHI redaction (0.1.8).                                #
+        #                                                             #
+        # Runs BEFORE the chain signature is computed so the          #
+        # signature is over the redacted payload — an auditor         #
+        # reproducing the signature does not need access to raw       #
+        # secrets. Findings (per-pattern hit counts) land in          #
+        # extra["redaction_findings"] so dashboards and SOC 2         #
+        # evidence reports can surface which records had sensitive    #
+        # data and what kind.                                         #
+        # ----------------------------------------------------------- #
+        record_extra = dict(self.extra)
+        if self.redactor is not None:
+            findings: dict[str, int] = {}
+            q_res = self.redactor.redact(state.query)
+            state.query = q_res.text
+            _bump(findings, q_res.findings)
+            for c in state.chunks:
+                content_res = self.redactor.redact(c.content)
+                url_res = self.redactor.redact(c.source_url)
+                c.content = content_res.text
+                c.source_url = url_res.text
+                _bump(findings, content_res.findings)
+                _bump(findings, url_res.findings)
+            ans_res = self.redactor.redact(state.llm_answer)
+            state.llm_answer = ans_res.text
+            _bump(findings, ans_res.findings)
+            if findings:
+                record_extra["redaction_findings"] = findings
+
         latency_ms = int((time.time() - state.start_time) * 1000)
         signature = self._sign_chain(state)
         record = AuditRecord(
@@ -393,7 +448,7 @@ class RAGComplianceHandler(BaseCallbackHandler):
             model_name=state.model_name,
             chain_signature=signature,
             latency_ms=latency_ms,
-            extra=self.extra,
+            extra=record_extra,
         )
 
         # Defensive save: the built-in Supabase storage catches its own
