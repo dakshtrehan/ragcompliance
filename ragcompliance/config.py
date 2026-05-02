@@ -1,5 +1,5 @@
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass
@@ -26,9 +26,31 @@ class RAGComplianceConfig:
     async_max_queue: int = 1000
     # Seconds to wait on process shutdown for the worker to finish draining.
     async_shutdown_timeout: float = 5.0
+    # ------------------------------------------------------------------ #
+    # PII / PHI redaction (added in 0.1.8).                              #
+    # ------------------------------------------------------------------ #
+    # Master switch: when False, the handler skips redaction entirely
+    # and behaves exactly like 0.1.7. Default is False so an upgrade
+    # is non-breaking; teams turn it on explicitly once they have
+    # reviewed the pattern set against their own data.
+    redact_pii: bool = False
+    # Names of built-in patterns to apply, in order. Order matters when
+    # two patterns can match overlapping ranges (e.g. anthropic_key
+    # before openai_key, both starting with sk-). None means use the
+    # full DEFAULT_PATTERN_ORDER from ragcompliance.redaction.
+    redaction_patterns: list[str] | None = None
+    # Replacement template. ``{name}`` is substituted with the upper-
+    # case pattern name, e.g. ``[REDACTED:EMAIL]``.
+    redaction_replacement: str = "[REDACTED:{name}]"
 
     @classmethod
     def from_env(cls) -> "RAGComplianceConfig":
+        patterns_env = os.getenv("RAGCOMPLIANCE_REDACTION_PATTERNS", "").strip()
+        patterns_list = (
+            [p.strip() for p in patterns_env.split(",") if p.strip()]
+            if patterns_env
+            else None
+        )
         return cls(
             supabase_url=os.getenv("RAGCOMPLIANCE_SUPABASE_URL", ""),
             supabase_key=os.getenv("RAGCOMPLIANCE_SUPABASE_KEY", ""),
@@ -41,5 +63,10 @@ class RAGComplianceConfig:
             async_max_queue=int(os.getenv("RAGCOMPLIANCE_ASYNC_MAX_QUEUE", "1000")),
             async_shutdown_timeout=float(
                 os.getenv("RAGCOMPLIANCE_ASYNC_SHUTDOWN_TIMEOUT", "5.0")
+            ),
+            redact_pii=os.getenv("RAGCOMPLIANCE_REDACT_PII", "false").lower() == "true",
+            redaction_patterns=patterns_list,
+            redaction_replacement=os.getenv(
+                "RAGCOMPLIANCE_REDACTION_REPLACEMENT", "[REDACTED:{name}]"
             ),
         )
