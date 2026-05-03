@@ -388,7 +388,7 @@ Sampling is random but seeded for reproducibility via `--seed`, so an auditor re
 The dashboard is a single FastAPI app. The fastest path is Render's one-click from a repo:
 
 1. Create a new Web Service on https://render.com, pointing at this repo.
-2. Build command: `pip install -e ".[supabase,dashboard,llamaindex]"`
+2. Build command: `pip install -e ".[supabase,dashboard,llamaindex,sso]"`
 3. Start command: `uvicorn ragcompliance.app:app --host 0.0.0.0 --port $PORT`
 4. Copy every variable from `.env.example` into Render's environment settings.
 5. After the service is live, update the Stripe webhook endpoint to `https://<your-render-url>/stripe/webhook`.
@@ -407,13 +407,15 @@ pytest -v
 
 ## Roadmap
 
-See [CHANGELOG.md](./CHANGELOG.md) for what's already shipped. What's coming next:
+See [CHANGELOG.md](./CHANGELOG.md) for what's already shipped (171 tests passing as of v0.1.8). What's coming next:
 
 - [ ] **BYO object storage.** Write the raw query / chunks / answer payload to S3 / GCS / Azure Blob under a customer-owned KMS key, so Supabase only holds metadata and the signature. Keeps sensitive text out of the shared database entirely.
-- [ ] **PII redaction pre-audit.** Opt-in hook that runs a local regex + NER pass over the query and retrieved chunks before the record is signed, so audit trails don't become a secondary PII leak.
+- [ ] **NER-based redaction.** Layer a named-entity-recognition pass on top of the regex patterns shipped in v0.1.8, so person names, organisation names, and free-form addresses get redacted alongside the structured patterns (SSN, email, phone, credit card, IPv4, AWS / OpenAI / Anthropic keys, bearer tokens).
+- [ ] **Postgres-direct storage backend.** A Supabase-free path: any Postgres URL works, no row-level-security dependency, for teams that already have Postgres but don't want a Supabase project.
 - [ ] **Anthropic and Bedrock parity.** The LangChain integration already works with any chat model, but we want first-class coverage (and fixture tests) for `ChatAnthropic` and `ChatBedrock` so compliance-heavy teams don't have to verify the capture path themselves.
 - [ ] **Reranker audit.** Capture the reranker step for pipelines that use one (Cohere / Jina / cross-encoders), so the audit record tells the story of *why* a chunk ended up in the final context, not just *which* chunk.
 - [ ] **Signature coverage v2.** Opt-in stricter signature that also covers `similarity_score` and reranker outputs, for workspaces that need retrieval-level integrity, not just answer-level integrity.
+- [ ] **Haystack and DSPy first-class handlers.** Same capture shape as LangChain and LlamaIndex.
 
 Have a use case that isn't on this list? Open a GitHub issue or discussion; the roadmap is driven by what users actually need, not what's on my whiteboard.
 
