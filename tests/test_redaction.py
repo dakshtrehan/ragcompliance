@@ -16,7 +16,6 @@ The handler-level tests use the dev-mode stdout storage path so they
 do not depend on Supabase being installed.
 """
 
-import json
 from unittest.mock import patch
 from uuid import uuid4
 
@@ -24,7 +23,6 @@ import pytest
 
 from ragcompliance.config import RAGComplianceConfig
 from ragcompliance.handler import RAGComplianceHandler
-from ragcompliance.models import RetrievedChunk
 from ragcompliance.redaction import (
     BUILTIN_PATTERNS,
     DEFAULT_PATTERN_ORDER,
