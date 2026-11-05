@@ -8,18 +8,19 @@ Thank you for considering a contribution. RAGCompliance is MIT-licensed middlewa
 git clone https://github.com/dakshtrehan/ragcompliance
 cd ragcompliance
 python -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev,supabase,dashboard,llamaindex]"
+pip install -e ".[dev]"
 pytest -v
 ```
 
-Tests live in `tests/` and expect Python 3.11+. The full suite should pass offline — anything that genuinely needs a live Supabase, Stripe, or OpenAI should be gated behind an env flag and skipped by default.
+Tests live in `tests/` and run on Python 3.9 to 3.13 (the CI matrix). The full suite should pass offline: anything that genuinely needs a live Supabase, Stripe, or OpenAI should be gated behind an env flag and skipped by default.
 
 ## Before you open a PR
 
-1. `ruff check ragcompliance tests` — lint must be clean. Run `ruff check --fix` to auto-apply what it can.
-2. `pytest -q` — the full suite must pass.
-3. If you changed public API, env vars, or the audit record shape, update the README and add a line under `[Unreleased]` in `CHANGELOG.md`.
-4. Keep commits small and focused. One logical change per commit, conventional-commit-style prefixes (`feat:`, `fix:`, `docs:`, `chore:`, `perf:`) are preferred.
+1. `ruff check ragcompliance tests` and `mypy`: both must be clean. Run `ruff check --fix` to auto-apply what it can.
+2. `pytest -q --cov=ragcompliance --cov-fail-under=90`: the full suite must pass and coverage must stay above 90 percent.
+3. If you changed public API, env vars, or the audit record shape, update the README, the relevant page under `docs/`, and add a line under `[Unreleased]` in `CHANGELOG.md`. If you touched hashing or sealing, add a property test in `tests/test_chain_property.py`.
+4. No em dashes in docs or code comments; a test enforces it.
+5. Keep commits small and focused. One logical change per commit, conventional-commit-style prefixes (`feat:`, `fix:`, `docs:`, `chore:`, `perf:`) are preferred.
 
 ## What makes a good bug report
 
@@ -31,7 +32,7 @@ Start from the problem, not the solution. "My compliance team cannot sign off on
 
 ## Scope of the project
 
-RAGCompliance is deliberately small. It is a callback handler plus an audit store plus a dashboard. It is not:
+RAGCompliance is deliberately small. It is an audit core (`Auditor`), thin framework adapters, pluggable sinks, a verifier and an evidence exporter, plus a dashboard. It is not:
 
 - A vector database
 - A reranker

@@ -1,5 +1,5 @@
 """
-RAGCompliance billing — Stripe Checkout + subscription lifecycle + usage metering.
+RAGCompliance billing: Stripe Checkout + subscription lifecycle + usage metering.
 
 All Stripe interactions go through the `BillingManager`. Subscription state and
 per-workspace usage counters are persisted in Supabase in the
@@ -91,7 +91,7 @@ class WorkspaceSubscription:
     updated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
     @classmethod
-    def from_row(cls, row: dict[str, Any]) -> "WorkspaceSubscription":
+    def from_row(cls, row: dict[str, Any]) -> WorkspaceSubscription:
         def _parse(v: Any) -> datetime | None:
             if not v:
                 return None
@@ -189,7 +189,7 @@ class BillingManager:
     """
     Stripe wrapper + Supabase-backed subscription state.
 
-    Safe to instantiate without real credentials for tests — every method will
+    Safe to instantiate without real credentials for tests: every method will
     return a sensible no-op and log a warning if Stripe or Supabase isn't
     configured.
     """
@@ -219,7 +219,9 @@ class BillingManager:
                 stripe.api_key = stripe_secret_key
                 self._stripe = stripe
             except ImportError:
-                logger.warning("stripe package not installed — run `pip install stripe`")
+                logger.warning(
+                    "stripe package not installed; run: pip install 'ragcompliance[billing]'"
+                )
 
         if supabase_url and supabase_key:
             try:
@@ -227,7 +229,7 @@ class BillingManager:
                 self._supabase = create_client(supabase_url, supabase_key)
             except ImportError:
                 logger.warning(
-                    "supabase package not installed — run `pip install ragcompliance[supabase]`"
+                    "supabase package not installed; run: pip install 'ragcompliance[supabase]'"
                 )
 
     # ------------------------------------------------------------------ #
@@ -235,7 +237,7 @@ class BillingManager:
     # ------------------------------------------------------------------ #
 
     @classmethod
-    def from_env(cls) -> "BillingManager":
+    def from_env(cls) -> BillingManager:
         return cls(
             stripe_secret_key=os.getenv("STRIPE_SECRET_KEY", ""),
             stripe_webhook_secret=os.getenv("STRIPE_WEBHOOK_SECRET", ""),
@@ -253,7 +255,7 @@ class BillingManager:
 
         Intended to be called at startup and exposed through a /health/billing
         endpoint so operators catch live-mode misconfig before the first
-        customer hits checkout. Never throws — always returns a summary.
+        customer hits checkout. Never throws: always returns a summary.
         """
         mode = _detect_mode(self.stripe_secret_key)
         issues: list[str] = []
@@ -264,10 +266,10 @@ class BillingManager:
             issues.append("STRIPE_WEBHOOK_SECRET is not set")
         if not self.supabase_url or not self.supabase_key:
             issues.append(
-                "Supabase is not configured (RAGCOMPLIANCE_SUPABASE_URL / _KEY) — "
+                "Supabase is not configured (RAGCOMPLIANCE_SUPABASE_URL / _KEY); "
                 "subscription state cannot be persisted"
             )
-        # Price IDs use `price_...` (never `prod_...`) — guard against the
+        # Price IDs use `price_...` (never `prod_...`): guard against the
         # common mistake of pasting a product ID into STRIPE_PRICE_ID_*.
         refresh_plans()
         for tier, plan in PLANS.items():
@@ -277,29 +279,23 @@ class BillingManager:
                 continue
             if not pid.startswith("price_"):
                 issues.append(
-                    f"STRIPE_PRICE_ID_{tier.upper()}={pid[:10]}… looks wrong "
+                    f"STRIPE_PRICE_ID_{tier.upper()} looks wrong "
                     "(expected prefix 'price_'; did you paste a product ID?)"
                 )
-        if not self.app_base_url or self.app_base_url in ("http://localhost:8000",):
-            if mode == "live":
-                issues.append(
-                    "APP_BASE_URL is localhost but you're in live mode — Stripe "
-                    "success/cancel redirects and webhook callbacks will not work"
-                )
+        if (not self.app_base_url or self.app_base_url == "http://localhost:8000") and mode == "live":
+            issues.append(
+                "APP_BASE_URL is localhost but you're in live mode; Stripe "
+                "success/cancel redirects and webhook callbacks will not work"
+            )
 
-        # Sanitized summary — never include the actual secrets.
+        # Sanitized summary: never include the actual secrets.
         summary: dict[str, Any] = {
-            "secret_key_prefix": self.stripe_secret_key[:7] + "…"
-            if self.stripe_secret_key
-            else "",
+            "secret_key_set": bool(self.stripe_secret_key),
             "webhook_secret_set": bool(self.stripe_webhook_secret),
             "supabase_configured": bool(self._supabase),
             "app_base_url": self.app_base_url,
-            "price_ids": {
-                tier: (PLANS[tier].get("stripe_price_id") or "")[:10] + "…"
-                if PLANS[tier].get("stripe_price_id")
-                else ""
-                for tier in PLANS
+            "price_ids_set": {
+                tier: bool(PLANS[tier].get("stripe_price_id")) for tier in PLANS
             },
         }
         return BillingReadiness(
@@ -322,7 +318,7 @@ class BillingManager:
     ) -> str:
         """Returns a Stripe Checkout URL for the given tier."""
         if self._stripe is None:
-            raise RuntimeError("Stripe not configured — set STRIPE_SECRET_KEY")
+            raise RuntimeError("Stripe not configured: set STRIPE_SECRET_KEY")
 
         if tier not in PLANS:
             raise ValueError(f"Unknown tier {tier!r}. Choices: {list(PLANS)}")
@@ -478,7 +474,7 @@ class BillingManager:
                     or []
                 )
                 for row in rows:
-                    sub = WorkspaceSubscription.from_row(row)
+                    sub = WorkspaceSubscription.from_row(dict(row))
                     sub.status = "past_due"
                     self._upsert(sub)
             except Exception as e:
@@ -502,7 +498,7 @@ class BillingManager:
             )
             if not res.data:
                 return None
-            return res.data[0]
+            return dict(res.data[0])
         except Exception as e:
             logger.error(f"get_workspace_subscription failed: {e}")
             return None
@@ -517,14 +513,14 @@ class BillingManager:
         False only when an active paid tier is over its limit.
 
         Also auto-resets the usage counter when the stored current_period_end
-        is in the past — a self-healing fallback in case the Stripe
+        is in the past: a self-healing fallback in case the Stripe
         customer.subscription.updated webhook is delayed or dropped. Without
         this, a period rollover that missed its webhook would leave the
         workspace permanently locked out.
         """
         row = self.get_workspace_subscription(workspace_id)
         if not row:
-            # No sub record — default allow (free tier, pre-provisioning).
+            # No sub record: default allow (free tier, pre-provisioning).
             return True
         sub = WorkspaceSubscription.from_row(row)
         if sub.status not in ("active", "trialing"):
@@ -590,7 +586,10 @@ class BillingManager:
 
     def _upsert(self, sub: WorkspaceSubscription) -> None:
         if self._supabase is None:
-            logger.info(f"[dev] would upsert subscription: {sub.to_row()}")
+            logger.debug(
+                "[dev] would upsert subscription for workspace=%r tier=%s status=%s",
+                sub.workspace_id, sub.tier, sub.status,
+            )
             return
         try:
             self._supabase.table(self.TABLE_NAME).upsert(

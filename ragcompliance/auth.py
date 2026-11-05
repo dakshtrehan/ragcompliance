@@ -1,7 +1,7 @@
 """
 Optional OIDC SSO for the dashboard.
 
-Gated entirely by env vars — with no RAGCOMPLIANCE_OIDC_ISSUER the module
+Gated entirely by env vars: with no RAGCOMPLIANCE_OIDC_ISSUER the module
 is a no-op and the dashboard stays open for local dev. Works with any
 standards-compliant OIDC provider via discovery (Google Workspace, Okta,
 Auth0, Microsoft Entra, Authentik, etc.).
@@ -58,7 +58,7 @@ class SSOConfig:
     session_secret: str = ""
 
     @classmethod
-    def from_env(cls) -> "SSOConfig":
+    def from_env(cls) -> SSOConfig:
         domains_raw = os.getenv("RAGCOMPLIANCE_OIDC_ALLOWED_DOMAINS", "")
         return cls(
             issuer=os.getenv("RAGCOMPLIANCE_OIDC_ISSUER", ""),
@@ -98,10 +98,7 @@ def is_public_path(path: str) -> bool:
     if path in PUBLIC_PATHS:
         return True
     # Allow prefix match for subpaths (e.g. /auth/callback/... later).
-    for p in PUBLIC_PATHS:
-        if path.startswith(p + "/"):
-            return True
-    return False
+    return any(path.startswith(p + "/") for p in PUBLIC_PATHS)
 
 
 # ------------------------------------------------------------------ #
@@ -126,11 +123,11 @@ def init_sso(app: Any) -> SSOConfig:
     if not cfg.session_secret:
         cfg.session_secret = secrets.token_urlsafe(32)
         logger.warning(
-            "ragcompliance SSO: RAGCOMPLIANCE_SESSION_SECRET not set — using "
+            "ragcompliance SSO: RAGCOMPLIANCE_SESSION_SECRET not set; using "
             "an ephemeral secret. Sessions will invalidate on every restart."
         )
 
-    # authlib lives in the optional `sso` extra so load it lazily — that way
+    # authlib lives in the optional `sso` extra so load it lazily: that way
     # installing ragcompliance without `[sso]` is still fine as long as SSO
     # env vars are unset.
     from authlib.integrations.starlette_client import OAuth
@@ -150,7 +147,7 @@ def init_sso(app: Any) -> SSOConfig:
     # ---- Middleware: gate all non-public paths --------------------- #
 
     class _RequireAuthMiddleware(BaseHTTPMiddleware):
-        async def dispatch(self, request, call_next):
+        async def dispatch(self, request: Request, call_next: Any) -> Any:
             path = request.url.path
             if is_public_path(path):
                 return await call_next(request)
@@ -186,15 +183,15 @@ def init_sso(app: Any) -> SSOConfig:
     # ---- Routes ----------------------------------------------------- #
 
     @app.get("/login")
-    async def login(request: Request):
+    async def login(request: Request) -> Any:
         return await oauth.oidc.authorize_redirect(request, cfg.redirect_uri)
 
     @app.get("/auth/callback")
-    async def auth_callback(request: Request):
+    async def auth_callback(request: Request) -> Any:
         try:
             token = await oauth.oidc.authorize_access_token(request)
         except Exception as e:
-            logger.warning(f"ragcompliance SSO: callback failed — {e}")
+            logger.warning("ragcompliance SSO: callback failed: %s", e)
             raise HTTPException(status_code=400, detail="authentication failed")
 
         userinfo = token.get("userinfo") or {}
@@ -218,7 +215,7 @@ def init_sso(app: Any) -> SSOConfig:
         return RedirectResponse(url="/", status_code=302)
 
     @app.get("/logout")
-    async def logout(request: Request):
+    async def logout(request: Request) -> Any:
         request.session.pop(SESSION_USER_KEY, None)
         return RedirectResponse(url="/login", status_code=302)
 

@@ -10,7 +10,6 @@ from ragcompliance.billing import (
     refresh_plans,
 )
 
-
 # ------------------------------------------------------------------ #
 # _detect_mode                                                         #
 # ------------------------------------------------------------------ #
@@ -149,8 +148,10 @@ class TestReadiness:
             stripe_webhook_secret="whsec_test_abc",
         )
         rd = mgr.readiness()
-        # Prefix only.
-        assert rd.summary["secret_key_prefix"] == "sk_live…"
+        # Presence only; not even a prefix of the key is returned (AUDIT.md S05).
+        assert rd.summary["secret_key_set"] is True
+        assert "secret_key_prefix" not in rd.summary
+        assert "sk_live" not in str(rd.summary)
         # Don't leak the actual webhook secret.
         assert rd.summary["webhook_secret_set"] is True
         # Raw secret shouldn't appear anywhere in the serialized summary.
@@ -159,7 +160,7 @@ class TestReadiness:
         assert "whsec_test_abc" not in serialized
 
     def test_readiness_never_raises(self):
-        # No args — even a wholly un-instantiable config should return a
+        # No args: even a wholly un-instantiable config should return a
         # BillingReadiness, not raise.
         mgr = BillingManager()
         rd = mgr.readiness()

@@ -4,8 +4,8 @@ These tests exist because prior to v0.1.4 the handler kept per-invocation
 state on the instance (``_root_run_id``, ``_query``, ``_chunks``, ...),
 which silently clobbered records when the same handler was passed into a
 ``chain.batch([q1, q2, q3])`` call or across threads. The failure mode
-was silent audit-loss-with-misrepresentation — exactly the most dangerous
-class of bug for a compliance library — so there is now a dedicated
+was silent audit-loss-with-misrepresentation: exactly the most dangerous
+class of bug for a compliance library: so there is now a dedicated
 regression suite.
 
 None of these tests hit a real LLM, vector store, or network. They drive
@@ -169,7 +169,7 @@ class TestConcurrentInvoke:
                 t.join()
 
         assert len(saved) == 20
-        # Every pair must be (query-N, answer-N) — no cross-contamination.
+        # Every pair must be (query-N, answer-N): no cross-contamination.
         for q, a in saved:
             assert q.replace("query-", "") == a.replace("answer-", ""), (q, a)
 
@@ -221,14 +221,14 @@ class TestPendingRunsSoftCap:
         import logging
 
         with caplog.at_level(logging.WARNING, logger="ragcompliance.handler"):
-            # 10 roots start, none end — expect eviction down to 5.
+            # 10 roots start, none end: expect eviction down to 5.
             for i in range(10):
                 h.on_chain_start({}, {"query": f"q{i}"}, run_id=uuid.uuid4())
 
         assert len(h._runs) == 5
         warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
         assert any("RAGCOMPLIANCE_MAX_PENDING_RUNS" in r.getMessage() for r in warnings)
-        # Exactly one warning — not one per eviction.
+        # Exactly one warning: not one per eviction.
         assert sum(
             "RAGCOMPLIANCE_MAX_PENDING_RUNS" in r.getMessage() for r in warnings
         ) == 1
@@ -313,7 +313,7 @@ class TestPerformance:
 
 def test_max_pending_runs_env_bad_value_defaults_safely(dev_config, monkeypatch):
     """A junk value in RAGCOMPLIANCE_MAX_PENDING_RUNS must not crash the
-    constructor — fall back to 10000."""
+    constructor: fall back to 10000."""
     monkeypatch.setenv("RAGCOMPLIANCE_MAX_PENDING_RUNS", "not-a-number")
     h = RAGComplianceHandler(config=dev_config, session_id="s")
     assert h._max_pending_runs == 10000

@@ -1,29 +1,24 @@
-"""
-ragcompliance-selftest: verify that an install is wired correctly.
-
-Runs a series of sanity checks against the current environment and reports
-red/yellow/green per check. Designed to be copy-pasteable into a CI job or a
-fresh-venv smoke test so operators can confirm a deployment before pointing
-production chains at it.
+"""ragcompliance-selftest: verify that an install is wired correctly.
 
 Checks (in order):
-    1. ragcompliance import + version readback
-    2. Optional extras available on this install (supabase, langchain_core,
-       llama_index_core, fastapi, authlib)
-    3. Required env vars for non-dev-mode operation
-    4. RAGComplianceConfig.from_env() loads without raising
-    5. AuditStorage constructs against the resolved config
-    6. Round-trip save of a synthetic record (dev_mode path or Supabase)
-    7. Signature recomputation on the synthetic record matches what was stored
 
-Exit code 0 means every red-level check passed. Yellow checks (missing
-optional extras) are informational and do not fail.
+1. ragcompliance import and version readback
+2. optional extras present on this install (informational)
+3. a sink is configured for non dev mode operation
+4. ``RAGComplianceConfig.from_env()`` loads
+5. round trip: write two records to an in-memory sink, verify the hash
+   chain, verify the content signature, and confirm tampering is detected
 
-Usage:
-    $ ragcompliance-selftest
-    $ ragcompliance-selftest --dev-mode        # force stdout path
-    $ ragcompliance-selftest --json            # machine-readable output
+Exit code 0 means every red level check passed. Yellow checks (missing
+optional extras) are informational.
+
+Usage::
+
+    ragcompliance selftest
+    ragcompliance selftest --dev-mode     # skip the sink check
+    ragcompliance selftest --json
 """
+
 from __future__ import annotations
 
 import argparse
@@ -35,7 +30,7 @@ import sys
 from dataclasses import dataclass, field
 from typing import Any
 
-from ragcompliance import __version__
+from ._version import __version__
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +40,6 @@ _RED = "\033[31m"
 _DIM = "\033[2m"
 _RESET = "\033[0m"
 
-# Severity: red = failure, yellow = informational, green = ok
 SEVERITY_RED = "red"
 SEVERITY_YELLOW = "yellow"
 SEVERITY_GREEN = "green"
@@ -55,7 +49,7 @@ SEVERITY_GREEN = "green"
 class CheckResult:
     name: str
     ok: bool
-    severity: str  # "red" | "yellow" | "green"
+    severity: str
     detail: str = ""
     data: dict[str, Any] = field(default_factory=dict)
 
@@ -79,210 +73,142 @@ def _check_version() -> CheckResult:
     )
 
 
+EXTRAS = {
+    "langchain_core": "langchain (pip install 'ragcompliance[langchain]')",
+    "llama_index.core": "llamaindex (pip install 'ragcompliance[llamaindex]')",
+    "openai": "openai (pip install 'ragcompliance[openai]')",
+    "anthropic": "anthropic (pip install 'ragcompliance[anthropic]')",
+    "supabase": "supabase (pip install 'ragcompliance[supabase]')",
+    "psycopg": "postgres (pip install 'ragcompliance[postgres]')",
+    "boto3": "s3 (pip install 'ragcompliance[s3]')",
+    "fastapi": "dashboard (pip install 'ragcompliance[dashboard]')",
+    "authlib": "sso (pip install 'ragcompliance[sso]')",
+    "stripe": "billing (pip install 'ragcompliance[billing]')",
+}
+
+
 def _check_optional_extras() -> list[CheckResult]:
-    """Yellow: missing extras are informational, not failures."""
-    extras = {
-        "supabase": "supabase (pip install 'ragcompliance[supabase]')",
-        "langchain_core": "langchain (pip install langchain-core)",
-        "llama_index.core": "llama-index (pip install 'ragcompliance[llamaindex]')",
-        "fastapi": "dashboard (pip install 'ragcompliance[dashboard]')",
-        "authlib": "sso (pip install 'ragcompliance[sso]')",
-    }
     results: list[CheckResult] = []
-    for module, hint in extras.items():
+    for module, hint in EXTRAS.items():
         try:
             importlib.import_module(module)
             results.append(
-                CheckResult(
-                    name=f"extras.{module}",
-                    ok=True,
-                    severity=SEVERITY_GREEN,
-                    detail=f"{module} available",
-                )
+                CheckResult(f"extras.{module}", True, SEVERITY_GREEN, f"{module} available")
             )
         except ImportError:
             results.append(
+                CheckResult(f"extras.{module}", False, SEVERITY_YELLOW, f"not installed: {hint}")
+            )
+        except Exception as exc:  # an extra that is installed but broken on this interpreter
+            results.append(
                 CheckResult(
-                    name=f"extras.{module}",
-                    ok=False,
-                    severity=SEVERITY_YELLOW,
-                    detail=f"not installed: {hint}",
+                    f"extras.{module}",
+                    False,
+                    SEVERITY_YELLOW,
+                    f"installed but failed to import ({exc.__class__.__name__}): {hint}",
                 )
             )
     return results
 
 
-def _check_env_vars(dev_mode_override: bool) -> CheckResult:
-    """Red if non-dev-mode and required Supabase env vars are missing."""
-    dev_mode = (
-        dev_mode_override
-        or os.getenv("RAGCOMPLIANCE_DEV_MODE", "false").lower() == "true"
-    )
+def _check_sink_configured(dev_mode_override: bool) -> CheckResult:
+    dev_mode = dev_mode_override or os.getenv("RAGCOMPLIANCE_DEV_MODE", "false").lower() == "true"
     if dev_mode:
         return CheckResult(
-            name="env.vars",
-            ok=True,
-            severity=SEVERITY_GREEN,
-            detail="dev_mode=true, Supabase env vars not required",
-            data={"dev_mode": True},
+            "sink.configured", True, SEVERITY_GREEN,
+            "dev_mode=true, no sink required (in-memory sink + stdout)", {"dev_mode": True},
         )
-    required = ["RAGCOMPLIANCE_SUPABASE_URL", "RAGCOMPLIANCE_SUPABASE_KEY"]
-    missing = [name for name in required if not os.getenv(name)]
-    if missing:
+    sink = os.getenv("RAGCOMPLIANCE_SINK", "").strip()
+    if sink:
         return CheckResult(
-            name="env.vars",
-            ok=False,
-            severity=SEVERITY_RED,
-            detail=(
-                f"missing: {', '.join(missing)}. Set RAGCOMPLIANCE_DEV_MODE=true "
-                "for stdout-only dev, or fill these in for Supabase writes."
-            ),
-            data={"missing": missing},
+            "sink.configured", True, SEVERITY_GREEN, f"RAGCOMPLIANCE_SINK={sink.split('://')[0]}://...",
         )
+    if os.getenv("RAGCOMPLIANCE_SUPABASE_URL") and os.getenv("RAGCOMPLIANCE_SUPABASE_KEY"):
+        return CheckResult("sink.configured", True, SEVERITY_GREEN, "Supabase credentials present")
     return CheckResult(
-        name="env.vars",
-        ok=True,
-        severity=SEVERITY_GREEN,
-        detail="required env vars present",
+        "sink.configured", False, SEVERITY_RED,
+        "no sink: set RAGCOMPLIANCE_SINK (jsonl://, sqlite://, postgresql://, s3://) or "
+        "RAGCOMPLIANCE_SUPABASE_URL/_KEY, or RAGCOMPLIANCE_DEV_MODE=true for local use",
     )
 
 
 def _check_config() -> CheckResult:
     try:
-        from ragcompliance import RAGComplianceConfig
+        from .config import RAGComplianceConfig
 
         config = RAGComplianceConfig.from_env()
         return CheckResult(
-            name="config.load",
-            ok=True,
-            severity=SEVERITY_GREEN,
-            detail=(
-                f"workspace_id={config.workspace_id} dev_mode={config.dev_mode} "
-                f"async_writes={config.async_writes}"
-            ),
-            data={
+            "config.load", True, SEVERITY_GREEN,
+            f"workspace_id={config.workspace_id} dev_mode={config.dev_mode} "
+            f"async_writes={config.async_writes} chain_id={config.chain_id} "
+            f"hmac={'on' if config.chain_hmac_key else 'off'} "
+            f"redact_pii={config.redact_pii}",
+            {
                 "workspace_id": config.workspace_id,
                 "dev_mode": config.dev_mode,
                 "async_writes": config.async_writes,
+                "chain_id": config.chain_id,
+                "hmac": bool(config.chain_hmac_key),
+                "redact_pii": config.redact_pii,
             },
         )
-    except Exception as exc:  # pragma: no cover - defensive
-        return CheckResult(
-            name="config.load",
-            ok=False,
-            severity=SEVERITY_RED,
-            detail=f"RAGComplianceConfig.from_env() raised: {exc!r}",
-        )
-
-
-def _check_storage_roundtrip(dev_mode_override: bool) -> CheckResult:
-    """Dev-mode-only smoke test: build a storage, save a synthetic record,
-    confirm the handler's SHA-256 signature matches on re-computation.
-    """
-    import hashlib
-    import json as _json
-
-    try:
-        from ragcompliance import AuditRecord, AuditStorage, RAGComplianceConfig, RetrievedChunk
-    except ImportError as exc:
-        return CheckResult(
-            name="storage.roundtrip",
-            ok=False,
-            severity=SEVERITY_RED,
-            detail=f"could not import storage layer: {exc!r}",
-        )
-
-    def _sign(query: str, chunks: list, answer: str) -> str:
-        """Mirror of RAGComplianceHandler._sign_chain so selftest stays
-        self-contained and doesn't require instantiating a handler."""
-        payload = {
-            "query": query,
-            "chunks": [
-                {"content": c.content, "source_url": c.source_url, "chunk_id": c.chunk_id}
-                for c in chunks
-            ],
-            "answer": answer,
-        }
-        raw = _json.dumps(payload, sort_keys=True, default=str)
-        return hashlib.sha256(raw.encode()).hexdigest()
-
-    config = RAGComplianceConfig.from_env()
-    if dev_mode_override:
-        config.dev_mode = True
-    # Only exercise the dev-mode stdout path from selftest.
-    # Supabase round-trip is left to a live deployment: the selftest should
-    # not silently write rows to anyone's production audit table.
-    config.dev_mode = True
-
-    storage = AuditStorage(config)
-    chunks = [
-        RetrievedChunk(
-            content="example chunk",
-            source_url="example.pdf",
-            chunk_id="selftest-0",
-            similarity_score=0.99,
-        )
-    ]
-    record = AuditRecord(
-        session_id="selftest",
-        workspace_id=config.workspace_id,
-        query="what does selftest look like?",
-        retrieved_chunks=chunks,
-        llm_answer="selftest works.",
-        model_name="selftest-model",
-        latency_ms=1,
-    )
-    record.chain_signature = _sign(
-        record.query,
-        record.retrieved_chunks,
-        record.llm_answer,
-    )
-
-    try:
-        ok = storage.save(record)
     except Exception as exc:
         return CheckResult(
-            name="storage.roundtrip",
-            ok=False,
-            severity=SEVERITY_RED,
-            detail=f"storage.save raised: {exc!r}",
+            "config.load", False, SEVERITY_RED, f"RAGComplianceConfig.from_env() raised: {exc!r}"
         )
 
-    if not ok:
+
+def _check_chain_roundtrip() -> CheckResult:
+    """Write two records to an in-memory sink, verify, tamper, verify again."""
+    try:
+        from .auditor import Auditor
+        from .chain import verify_records
+        from .config import RAGComplianceConfig
+        from .models import RetrievedChunk
+        from .sinks import MemorySink
+        from .storage import AuditStorage
+    except ImportError as exc:  # pragma: no cover
+        return CheckResult("chain.roundtrip", False, SEVERITY_RED, f"import failed: {exc!r}")
+
+    config = RAGComplianceConfig.from_env()
+    config.dev_mode = False
+    config.async_writes = False
+    config.enabled = True
+    sink = MemorySink(chain_id=config.chain_id, hmac_key=config.hmac_key_bytes)
+    storage = AuditStorage(config, sink=sink)
+    auditor = Auditor(config, session_id="selftest", storage=storage, billing=None, alerter=None)
+    for i in range(2):
+        with auditor.trace(f"selftest query {i}") as t:
+            t.add_chunk(RetrievedChunk("example chunk", "example.pdf", f"selftest-{i}", 0.99))
+            t.set_answer("selftest works.", model_name="selftest-model")
+
+    result = verify_records(sink.records, hmac_key=config.hmac_key_bytes)
+    if not result.ok or result.records_checked != 2:
         return CheckResult(
-            name="storage.roundtrip",
-            ok=False,
-            severity=SEVERITY_RED,
-            detail="storage.save returned False in dev_mode path",
+            "chain.roundtrip", False, SEVERITY_RED,
+            f"fresh chain did not verify: {[p.code for p in result.problems]}",
         )
-
-    recomputed = _sign(
-        record.query, record.retrieved_chunks, record.llm_answer
-    )
-    if recomputed != record.chain_signature:
+    tampered = [dict(r) for r in sink.records]
+    tampered[0]["llm_answer"] = "tampered"
+    detect = verify_records(tampered, hmac_key=config.hmac_key_bytes)
+    codes = {p.code for p in detect.problems}
+    if detect.ok or "content_signature_mismatch" not in codes or "record_hash_mismatch" not in codes:
         return CheckResult(
-            name="storage.roundtrip",
-            ok=False,
-            severity=SEVERITY_RED,
-            detail="signature recomputation mismatch",
+            "chain.roundtrip", False, SEVERITY_RED, f"tampering was not detected: {sorted(codes)}"
         )
-
     return CheckResult(
-        name="storage.roundtrip",
-        ok=True,
-        severity=SEVERITY_GREEN,
-        detail="dev-mode storage save + signature recomputation match",
+        "chain.roundtrip", True, SEVERITY_GREEN,
+        "2 records sealed, chain verified, tampering detected",
+        {"head_hash": result.chains[0].head_hash if result.chains else ""},
     )
 
 
 def run_selftest(dev_mode: bool = False) -> list[CheckResult]:
-    """Run every check in order, return results in list order."""
-    results: list[CheckResult] = []
-    results.append(_check_version())
+    results: list[CheckResult] = [_check_version()]
     results.extend(_check_optional_extras())
-    results.append(_check_env_vars(dev_mode_override=dev_mode))
+    results.append(_check_sink_configured(dev_mode_override=dev_mode))
     results.append(_check_config())
-    results.append(_check_storage_roundtrip(dev_mode_override=dev_mode))
+    results.append(_check_chain_roundtrip())
     return results
 
 
@@ -290,14 +216,9 @@ def _format_human(results: list[CheckResult]) -> str:
     stdout_tty = sys.stdout.isatty()
 
     def style(color: str, s: str) -> str:
-        if not stdout_tty:
-            return s
-        return f"{color}{s}{_RESET}"
+        return f"{color}{s}{_RESET}" if stdout_tty else s
 
-    lines: list[str] = []
-    lines.append("")
-    lines.append(style(_DIM, "ragcompliance-selftest"))
-    lines.append(style(_DIM, "-" * 22))
+    lines: list[str] = ["", style(_DIM, "ragcompliance-selftest"), style(_DIM, "-" * 22)]
     for r in results:
         if r.severity == SEVERITY_GREEN:
             mark = style(_GREEN, "  ok ")
@@ -305,17 +226,15 @@ def _format_human(results: list[CheckResult]) -> str:
             mark = style(_YELLOW, "info ")
         else:
             mark = style(_RED, "FAIL ")
-        name = r.name.ljust(24)
-        lines.append(f"{mark} {name} {r.detail}")
+        lines.append(f"{mark} {r.name.ljust(24)} {r.detail}")
     lines.append("")
-
     red_failures = [r for r in results if r.severity == SEVERITY_RED and not r.ok]
     if red_failures:
         lines.append(
             style(
                 _RED,
-                f"{len(red_failures)} blocking check(s) failed. "
-                "Fix these before pointing production chains at this install.",
+                f"{len(red_failures)} blocking check(s) failed. Fix these before pointing "
+                "production chains at this install.",
             )
         )
     else:
@@ -327,21 +246,10 @@ def _format_human(results: list[CheckResult]) -> str:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="ragcompliance-selftest",
-        description=(
-            "Verify that the current ragcompliance install is wired correctly. "
-            "Exit 0 on all blocking checks passing, non-zero otherwise."
-        ),
+        description="Verify that the current ragcompliance install is wired correctly.",
     )
-    parser.add_argument(
-        "--dev-mode",
-        action="store_true",
-        help="Force dev-mode checks (skip required Supabase env-var check).",
-    )
-    parser.add_argument(
-        "--json",
-        action="store_true",
-        help="Emit machine-readable JSON instead of the default human output.",
-    )
+    parser.add_argument("--dev-mode", action="store_true", help="Skip the sink check.")
+    parser.add_argument("--json", action="store_true", help="Machine readable output.")
     args = parser.parse_args(argv)
 
     results = run_selftest(dev_mode=args.dev_mode)
@@ -349,12 +257,9 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps([r.to_dict() for r in results], indent=2))
     else:
         print(_format_human(results))
-
-    # Exit non-zero only on red failures. Yellow (missing optional extras) is
-    # informational: a minimal install intentionally doesn't pull every extra.
     red_failures = [r for r in results if r.severity == SEVERITY_RED and not r.ok]
     return 0 if not red_failures else 1
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover
     sys.exit(main())

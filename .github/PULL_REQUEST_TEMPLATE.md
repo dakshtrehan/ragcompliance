@@ -36,4 +36,4 @@ None.
 
 - [ ] Public API changes are documented in the README and `CHANGELOG.md` under `[Unreleased]`
 - [ ] New env vars are added to the env-var reference table in the docs
-- [ ] I did not add a paid tier — this project is MIT and stays MIT
+- [ ] I did not add a paid tier: this project is MIT and stays MIT

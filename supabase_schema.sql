@@ -1,5 +1,7 @@
--- RAGCompliance: Supabase schema
--- Run this once in your Supabase SQL editor before using the package.
+-- RAGCompliance: Supabase schema (0.1.x column set).
+-- Run once in the Supabase SQL editor before using the Supabase sink.
+-- Then run supabase_migration_v1.sql for the 1.0 hash chain columns.
+-- Safe to re-run.
 
 create extension if not exists "pgcrypto";
 
@@ -24,6 +26,11 @@ create index if not exists idx_audit_signature  on rag_audit_logs (chain_signatu
 
 alter table rag_audit_logs enable row level security;
 
+-- NOTE: the library connects with the service role key, which bypasses row
+-- level security. This policy protects reads made with user scoped JWTs
+-- (for example from your own dashboard); it does not isolate tenants from
+-- a holder of the service role key. See docs/threat-model.md.
+drop policy if exists "workspace_isolation" on rag_audit_logs;
 create policy "workspace_isolation" on rag_audit_logs
     for all
     using (workspace_id = current_setting('app.workspace_id', true));

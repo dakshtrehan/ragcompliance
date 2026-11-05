@@ -231,7 +231,7 @@ class TestInitSSOEnabled:
         # Simpler: grab the OAuth instance by scanning registered clients.
         # authlib stores them as a class-level dict; easier to just patch the
         # authorize_access_token on every registered client.
-        for client_name in ("oidc",):
+        for _client_name in ("oidc",):
             # There's no global registry we can reach here, so we'll instead
             # directly seed the session via the callback by replacing the
             # bound method on the OAuth client. The simplest path: patch
@@ -280,7 +280,7 @@ class TestInitSSOEnabled:
             "x" * 48, {SESSION_USER_KEY: {"email": "alice@acme.com", "name": "Alice", "sub": "u"}}
         )
         client.cookies.set("rc_session", cookie)
-        # authed — 200
+        # authed: 200
         assert client.get("/api/logs").status_code == 200
         # /logout issues a Set-Cookie that clears the session and redirects
         r = client.get("/logout")

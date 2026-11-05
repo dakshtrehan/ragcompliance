@@ -6,7 +6,126 @@ The format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.
 
 ## [Unreleased]
 
-## [0.1.8] — 2026-05-02
+## [1.0.0rc1] - 2026-11-05
+
+Release candidate for 1.0. The theme is "evidence an auditor can verify":
+a tamper evident hash chain, pluggable storage, a framework neutral core,
+first class SDK wrappers, and a zipped evidence pack. Everything found in
+the pre release audit (`AUDIT.md`) is fixed or documented; design choices
+are logged in `DECISIONS.md`. Public API and record keys from 0.1.x are
+preserved and old records still verify. Behaviour changes that can affect
+an upgrade are listed under "Changed" and in `docs/migration.md`.
+
+### Added
+- `ragcompliance.chain`: canonical JSON, the 0.1.x compatible content
+  signature, per record hash chain (`chain_id`, `sequence`, `prev_hash`,
+  `record_hash`), optional HMAC seal (`RAGCOMPLIANCE_CHAIN_HMAC_KEY`), and
+  a verifier that reports edits, broken links, gaps, forks, duplicate ids,
+  unanchored starts and HMAC mismatches per `(workspace, chain)`.
+- Pluggable sinks selected by `RAGCOMPLIANCE_SINK`: JSONL (cross process
+  `flock`), SQLite (append only triggers, `BEGIN IMMEDIATE`), PostgreSQL
+  (`psycopg` 3, advisory lock, append only trigger, `postgres` extra), S3
+  compatible (`boto3`, Object Lock aware, `s3` extra), Supabase (two table
+  layouts), in memory. `AuditStorage` is now a façade over a sink and
+  gains `iter_records`, `verify`, `purge_expired`, `count`, `describe`
+  and a `dropped_count` counter.
+- `RetentionPolicy` and checkpointed purges (`storage.purge_expired()`,
+  `ragcompliance purge`). A `retention_checkpoint` record anchors the
+  surviving chain so verification explains the gap instead of failing.
+- `Auditor`: framework neutral core with a `trace()` context manager,
+  `bind()` for thread local actor and context, actor attribution, data
+  lineage (chunk hashes, retriever, prompt hash, model parameters, usage,
+  timing, truncation flags), redaction before hashing, optional error
+  records (`RAGCOMPLIANCE_RECORD_ERRORS`), optional prompt capture
+  (`RAGCOMPLIANCE_CAPTURE_PROMPTS`).
+- `AuditRecord` fields: `kind`, `actor`, `lineage`, `schema_version`,
+  `tool_version`, `chain_id`, `sequence`, `prev_hash`, `record_hash`,
+  `record_hmac`; `AuditRecord.from_dict()`; `RetrievedChunk.to_dict()`,
+  `from_dict()`, `content_sha256()`.
+- Integrations package: `ragcompliance.integrations.langchain`
+  (`audited_chain`), `.llamaindex` (`install`), `.openai`
+  (`AuditedOpenAI`: chat completions and responses, sync, async,
+  streaming) and `.anthropic` (`AuditedAnthropic`: messages, sync, async,
+  streaming; drops sampling parameters the installed SDK rejects and
+  records them in `lineage.model_params_dropped`).
+- Per invocation attribution in LangChain through
+  `metadata["ragcompliance_actor"]` / `actor_id` / `user_id`, and
+  `metadata["ragcompliance_extra"]`.
+- Redaction: hooks (`Redactor(hooks=[...])`), callable replacements,
+  `pseudonymize(salt)`, `iban` pattern, `Redactor.redact_record()` that
+  also covers chunk metadata and captured prompts, `describe()`.
+- Evidence pack exporter (`ragcompliance.evidence`, `ragcompliance
+  evidence`): zip with `manifest.json` (file hashes and `pack_hash`),
+  `records.jsonl`, `verification.json`, `report.md`, `controls.json`,
+  `controls.md`, `retention.json`, `redaction.json`, `README.txt`.
+  `verify_evidence_pack()` and `ragcompliance verify --evidence`.
+- `ragcompliance.controls`: the SOC 2 and ISO 27001 control mapping used by
+  the report, the evidence pack and `docs/control-mapping.md`.
+- Unified CLI `ragcompliance` (`verify`, `evidence`, `soc2`, `purge`,
+  `show`, `selftest`) and `ragcompliance-verify`. Old scripts kept.
+- Dashboard: `create_app()` factory, `/api/verify`, actor and chain columns.
+- `py.typed`, `mypy` clean, `ruff` clean, `hypothesis` property tests for
+  the chain, test coverage above 90 percent with a CI gate, CI matrix for
+  Python 3.9 to 3.13, build and `twine check` in CI.
+- mkdocs documentation under `docs/` (quickstart, hash chain, sinks,
+  redaction, retention, lineage, integrations, evidence, control mapping,
+  threat model, configuration, CLI, dashboard, examples, migration, FAQ),
+  runnable examples under `examples/`, `RELEASE.md`, `AUDIT.md`,
+  `DECISIONS.md`, `supabase_migration_v1.sql`, `sql/postgres_schema.sql`.
+
+### Changed
+- Packaging: the core has no required dependencies. `langchain-core` moved
+  to the `langchain` extra and `stripe` to the `billing` extra. Python
+  3.9 is now the floor (was 3.11). Version is read from
+  `ragcompliance/_version.py`.
+- No sink configured and not in dev mode: `save()` logs once, counts the
+  drop and returns `False` (was `True`). Credentials present but driver
+  missing raises `ConfigurationError` (was a silent fallback). Dev mode now
+  uses an in memory sink and prints the sealed record.
+- Slack alert payloads no longer include query text by default
+  (`RAGCOMPLIANCE_SLACK_INCLUDE_QUERY=true` restores it); they include the
+  record id and actor id.
+- Dashboard reads ignore the caller supplied `workspace_id` unless
+  `RAGCOMPLIANCE_DASHBOARD_ALLOW_ANY_WORKSPACE=true`; CORS is off unless
+  `RAGCOMPLIANCE_DASHBOARD_CORS_ORIGINS` is set; all values are HTML
+  escaped; CSV cells are protected against formula injection.
+- Billing is only constructed when `STRIPE_SECRET_KEY` is set or a manager
+  is passed; the handler no longer makes a Supabase read per chain start
+  for everyone else. `BillingReadiness.summary` exposes booleans
+  (`secret_key_set`, `price_ids_set`) instead of key prefixes.
+- `on_chain_error` alerts with the redacted state. `LlamaIndexRAGComplianceHandler`
+  applies redaction (it did not before) and accepts `redactor`, `storage`,
+  `actor`.
+- Model name capture reads `llm_output.model`, `invocation_params` and
+  `response_metadata` in addition to `llm_output.model_name`. An empty
+  `LLMResult` no longer stores the object repr as the answer.
+- Query and answer truncation is recorded in `lineage.truncation` and the
+  limits are configurable.
+- SOC 2 report verifies every record (not a 64 character length check),
+  paginates exhaustively, reports chain verification, uses ASCII only, and
+  accepts any storage with `iter_records()` or a `records=` list.
+- Handler callbacks are guarded: only `QuotaExceededError` (a
+  `RuntimeError` subclass) propagates; other exceptions are logged.
+- A missing `run_id` on a direct callback call resolves to the single
+  pending root, so driving the handler by hand writes a record.
+- `supabase_schema.sql` is idempotent and documents that the service role
+  key bypasses row level security.
+
+### Fixed
+- The shipped example never wrote a record (missing `run_id` routing).
+- Unredacted query sent to Slack on the error path.
+- LlamaIndex handler ignored `RAGCOMPLIANCE_REDACT_PII`.
+- Silent audit loss when Supabase credentials were set without the driver.
+- Cross tenant reads through the dashboard; stored XSS in the dashboard.
+- Model name blank for `langchain-anthropic` and streaming chat models.
+- `self.extra` shared by reference across records.
+- Em dashes removed from code, docs and generated reports.
+
+### Removed
+- Nothing public. `AuditStorage._client` is now a read only compatibility
+  property.
+
+## [0.1.8]: 2026-05-02
 
 This release adds opt-in PII / PHI redaction inside the audit handler so
 sensitive values never reach storage. The chain signature is computed
@@ -43,7 +162,7 @@ Off by default; turning it on is a one-line config change.
 ### Changed
 - `RAGComplianceHandler.on_chain_end` now runs the redactor (when
   configured) BEFORE `_sign_chain`. Hot path is unchanged for
-  workspaces that leave `redact_pii=False` — `self.redactor` is
+  workspaces that leave `redact_pii=False`: `self.redactor` is
   `None` and the redaction block short-circuits to a no-op.
 
 ### Internal
@@ -51,7 +170,7 @@ Off by default; turning it on is a one-line config change.
   per-pattern hit counts. Kept module-private so the public API
   surface is unchanged.
 
-## [0.1.7] — 2026-04-19
+## [0.1.7]: 2026-04-19
 
 This release is a credibility and polish pass. No handler behaviour
 changes. The library surface, signatures, and audit semantics are
@@ -95,7 +214,7 @@ or operator tooling around the install.
 
 ### Changed
 - Em-dash sweep across `README.md`, `docs/index.html`, and
-  `docs/docs.html`. All `—` (U+2014) and `–` (U+2013) characters in
+  `docs/docs.html`. All `-` (U+2014) and `-` (U+2013) characters in
   prose have been replaced with semicolons, parentheses, colons, or
   sentence splits. Zero dashes remain across the three surfaces.
 - Landing page now uses dynamic shields.io badges for PyPI version
@@ -123,7 +242,7 @@ or operator tooling around the install.
 ### Internal
 - None.
 
-## [0.1.6] — 2026-04-19
+## [0.1.6]: 2026-04-19
 
 ### Changed
 - SOC 2 evidence report default sample size raised from 5 to 25. This
@@ -148,7 +267,7 @@ or operator tooling around the install.
   Regression guards so a future drive-by change does not silently
   revert the default and surface stale evidence to auditors.
 
-## [0.1.5] — 2026-04-19
+## [0.1.5]: 2026-04-19
 
 ### Fixed
 - **Retrieved chunks silently dropped on `langchain-core >= 1.3.0`.**
@@ -158,7 +277,7 @@ or operator tooling around the install.
   `_resolve_root` could not walk up to the tracked root audit state and
   every retrieved chunk was silently dropped from the record. The
   record still saved with a valid SHA-256 signature but
-  `retrieved_chunks` was an empty list — a silent correctness bug for
+  `retrieved_chunks` was an empty list: a silent correctness bug for
   any RAG chain using the recommended LCEL pattern. Earlier LangChain
   versions happened to double-fire `on_chain_start` for retrievers so
   `on_chain_start`'s parent registration covered them incidentally;
@@ -179,10 +298,10 @@ or operator tooling around the install.
 
 ### Changed
 - `on_chain_start` now delegates inner-runnable parent tracking to the
-  new `_register_descendant` helper. Pure refactor — same behavior as
+  new `_register_descendant` helper. Pure refactor: same behavior as
   v0.1.4 for the chain-start path.
 
-## [0.1.4] — 2026-04-19
+## [0.1.4]: 2026-04-19
 
 ### Fixed
 - **`chain.batch([q1, q2, ...])` correctness.** The handler previously
@@ -193,7 +312,7 @@ or operator tooling around the install.
   before any `on_chain_end`, so invocations 2..N were silently
   ignored: the first query's record would be written with the last
   query's answer and every other query was dropped. This is now fixed
-  — each root run gets its own `_RunState` keyed by `run_id` and all N
+ : each root run gets its own `_RunState` keyed by `run_id` and all N
   records are written with matching query/chunks/answer triples.
 - **Shared-handler thread safety.** A single `RAGComplianceHandler` is
   now safe to share across concurrent `chain.invoke` / `chain.ainvoke`
@@ -211,7 +330,7 @@ or operator tooling around the install.
 ### Added
 - `RAGCOMPLIANCE_MAX_PENDING_RUNS` (default 10000): soft cap on the
   number of in-flight root run states the handler will hold. When
-  exceeded (typically because `on_chain_end` was never delivered — a
+  exceeded (typically because `on_chain_end` was never delivered: a
   crashed worker or misconfigured callbacks), the oldest pending state
   is evicted with a single warning log, and descendant parent mappings
   are dropped with it.
@@ -228,7 +347,7 @@ or operator tooling around the install.
   "one handler per invocation", with a `chain.batch` example and a
   pointer to the soft-cap env var.
 
-## [0.1.3] — 2026-04-18
+## [0.1.3]: 2026-04-18
 
 ### Added
 - Stripe live-mode readiness probe.
@@ -236,14 +355,14 @@ or operator tooling around the install.
     indicating `ready` / `warnings` / `errors`, detected Stripe mode
     (`test` / `live` / `unknown`), and sanitized key-prefix hints.
   - `/health/billing` endpoint returns `200` when ready, `503` otherwise,
-    with the same payload. Safe to scrape — no secrets leaked.
+    with the same payload. Safe to scrape: no secrets leaked.
 - Operator-facing "Going live (Stripe)" runbook in the README covering
   the four steps to cut over from test to live Stripe keys, including
   the webhook secret swap and DNS/TLS sanity checks.
 - Landing page and docs site at
   [www.dakshtrehan.com/ragcompliance](https://www.dakshtrehan.com/ragcompliance/),
   shipped via GitHub Pages from `/docs`.
-- Thread-safety note on both handlers (superseded in v0.1.4 — the
+- Thread-safety note on both handlers (superseded in v0.1.4: the
   handlers are now safe to share).
 - `AuditStorage.get_by_id(record_id, workspace_id=...)` for workspace-scoped
   single-record lookups backed by an indexed `.eq('id', ...)` Supabase query.
@@ -264,13 +383,13 @@ or operator tooling around the install.
   `authlib.integrations.starlette_client.OAuth`, `ragcompliance.auth`,
   `datetime.timedelta`, `unittest.mock.MagicMock`) and a spurious f-string.
 
-## [0.1.2] — 2026-04
+## [0.1.2]: 2026-04
 
 ### Added
 - SOC 2 evidence report generator (`ragcompliance.soc2`) that pulls live
   audit records, recomputes signatures on a random sample, and renders a
   Markdown report mapped to CC6.1, CC7.2, CC8.1, A1.1, C1.1 with a
-  methodology section. Not an attestation — it's the evidence pack an
+  methodology section. Not an attestation: it's the evidence pack an
   auditor asks for on day one.
 - Opt-in OIDC SSO on the dashboard via the `sso` extra
   (`pip install ragcompliance[sso]`). `/health` and `/stripe/webhook`
@@ -284,7 +403,7 @@ or operator tooling around the install.
   and a `flush()` method for tests and explicit app-shutdown hooks.
   Chain hot path no longer blocks on Supabase.
 
-## [0.1.1] — 2026-04
+## [0.1.1]: 2026-04
 
 ### Fixed
 - LCEL pipelines fire `on_chain_start` / `on_chain_end` for every
@@ -303,7 +422,7 @@ or operator tooling around the install.
 - LlamaIndex handler payload keys aligned with the LangChain handler so
   the SHA-256 signature is identical across both integrations.
 
-## [0.1.0] — 2026-03
+## [0.1.0]: 2026-03
 
 ### Added
 - Initial release of RAGCompliance.
@@ -327,7 +446,9 @@ or operator tooling around the install.
 - `RAGComplianceConfig` with `from_env()` and sensible defaults so the
   middleware works out of the box in dev.
 
-[Unreleased]: https://github.com/dakshtrehan/ragcompliance/compare/v0.1.7...HEAD
+[Unreleased]: https://github.com/dakshtrehan/ragcompliance/compare/v1.0.0rc1...HEAD
+[1.0.0rc1]: https://github.com/dakshtrehan/ragcompliance/releases/tag/v1.0.0rc1
+[0.1.8]: https://github.com/dakshtrehan/ragcompliance/releases/tag/v0.1.8
 [0.1.7]: https://github.com/dakshtrehan/ragcompliance/releases/tag/v0.1.7
 [0.1.6]: https://github.com/dakshtrehan/ragcompliance/releases/tag/v0.1.6
 [0.1.5]: https://github.com/dakshtrehan/ragcompliance/releases/tag/v0.1.5

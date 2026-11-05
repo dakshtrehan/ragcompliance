@@ -1,0 +1,74 @@
+site_name: ragcompliance
+site_description: Tamper evident audit trails and SOC 2 evidence for RAG pipelines
+site_url: https://www.dakshtrehan.com/ragcompliance/
+repo_url: https://github.com/dakshtrehan/ragcompliance
+repo_name: dakshtrehan/ragcompliance
+edit_uri: edit/main/docs/
+
+docs_dir: docs
+site_dir: site
+
+# docs/ also hosts the legacy GitHub Pages landing site (index.html,
+# docs.html and assets). Exclude those from the mkdocs build so the two can
+# coexist; see DECISIONS.md D11.
+exclude_docs: |
+  index.html
+  docs.html
+  sitemap.xml
+  robots.txt
+  .nojekyll
+  *.png
+  favicon.svg
+
+theme:
+  name: material
+  features:
+    - navigation.sections
+    - navigation.top
+    - content.code.copy
+    - search.highlight
+  palette:
+    - scheme: default
+      primary: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+
+markdown_extensions:
+  - admonition
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.highlight
+  - pymdownx.superfences
+
+nav:
+  - Home: index.md
+  - Quickstart: quickstart.md
+  - Concepts:
+      - Hash chain and verification: hash-chain.md
+      - Sinks: sinks.md
+      - Redaction: redaction.md
+      - Retention: retention.md
+      - Attribution and lineage: lineage.md
+  - Integrations:
+      - LangChain: integrations/langchain.md
+      - LlamaIndex: integrations/llamaindex.md
+      - OpenAI and Anthropic SDKs: integrations/sdk.md
+  - Evidence and audits:
+      - Evidence packs: evidence.md
+      - Control mapping (SOC 2, ISO 27001): control-mapping.md
+      - Threat model: threat-model.md
+  - Reference:
+      - Configuration: configuration.md
+      - Command line: cli.md
+      - Dashboard: dashboard.md
+      - Examples: examples.md
+  - Upgrading:
+      - Migration from 0.1.x: migration.md
+  - FAQ: faq.md
