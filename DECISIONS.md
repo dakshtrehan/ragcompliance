@@ -139,3 +139,14 @@ alternative, blocking the chain, is worse for availability), but the
 storage now keeps a `dropped_count`, logs once per threshold, and the
 evidence pack reports the counter, so an auditor sees that the log is
 not guaranteed complete under overload.
+
+## D17. Optional extras that are installed but broken are reported, not fatal
+
+On Python 3.9 a transitive dependency of llama-index-core fails at import
+with a `TypeError` rather than an `ImportError`. The handler module's
+import guard, the selftest's extras probe and the test suite's collection
+hook all treat any exception during an optional import as "not available
+here". The alternative, letting one broken optional package crash the
+selftest or the whole test run, would hide the state of everything else.
+The CI matrix therefore runs the core on 3.9 and skips the LlamaIndex
+tests there, which the job output shows as skipped rather than failed.

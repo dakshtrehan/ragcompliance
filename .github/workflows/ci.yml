@@ -6,37 +6,81 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
 jobs:
+  lint:
+    name: ruff and mypy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m pip install --upgrade pip
+      - run: pip install -e ".[dev]"
+      - run: ruff check ragcompliance tests
+      - run: mypy
+
   test:
+    name: pytest (python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.11", "3.12"]
-
+        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13"]
     steps:
       - uses: actions/checkout@v4
-
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-          cache: "pip"
-
-      - name: Install package with all extras
-        run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[dev,supabase,dashboard,llamaindex]"
-
-      - name: Lint with ruff
-        run: ruff check ragcompliance tests
-
-      - name: Run tests
+          cache: pip
+      - run: python -m pip install --upgrade pip
+      - name: Install package with every extra
+        run: pip install -e ".[dev]"
+      - name: Run tests with coverage gate
         env:
           RAGCOMPLIANCE_DEV_MODE: "true"
-          STRIPE_SECRET_KEY: "sk_test_dummy_for_ci"
-          STRIPE_WEBHOOK_SECRET: "whsec_dummy_for_ci"
-          STRIPE_PRICE_ID_TEAM: "price_team_dummy"
-          STRIPE_PRICE_ID_ENTERPRISE: "price_ent_dummy"
-          APP_BASE_URL: "http://localhost:8000"
-        run: pytest -v --tb=short
+        run: pytest -q --cov=ragcompliance --cov-report=term-missing --cov-report=xml --cov-fail-under=90
+      - name: Selftest CLI
+        run: ragcompliance selftest --dev-mode
+      - uses: actions/upload-artifact@v4
+        if: matrix.python-version == '3.12'
+        with:
+          name: coverage-xml
+          path: coverage.xml
+
+  build:
+    name: build sdist and wheel
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --upgrade pip build twine
+      - run: python -m build
+      - run: twine check dist/*
+      - name: Install the wheel in a clean environment and run the selftest
+        run: |
+          python -m venv /tmp/wheel-env
+          /tmp/wheel-env/bin/pip install dist/*.whl
+          /tmp/wheel-env/bin/ragcompliance selftest --dev-mode
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  docs:
+    name: mkdocs build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --upgrade pip
+      - run: pip install -e ".[docs]"
+      - run: mkdocs build --strict

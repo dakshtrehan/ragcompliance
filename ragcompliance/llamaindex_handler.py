@@ -51,7 +51,7 @@ try:
 
     _LLAMA_AVAILABLE = True
     _LLAMA_VERSION = getattr(_li_core, "__version__", "")
-except ImportError:  # pragma: no cover - optional dep path
+except Exception:  # pragma: no cover - optional dep path (upstream import errors too)
     _LIBase = object  # type: ignore[assignment,misc]
     CBEventType = None  # type: ignore[assignment,misc]
     EventPayload = None  # type: ignore[assignment,misc]

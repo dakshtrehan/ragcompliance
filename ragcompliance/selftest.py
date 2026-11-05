@@ -99,6 +99,15 @@ def _check_optional_extras() -> list[CheckResult]:
             results.append(
                 CheckResult(f"extras.{module}", False, SEVERITY_YELLOW, f"not installed: {hint}")
             )
+        except Exception as exc:  # an extra that is installed but broken on this interpreter
+            results.append(
+                CheckResult(
+                    f"extras.{module}",
+                    False,
+                    SEVERITY_YELLOW,
+                    f"installed but failed to import ({exc.__class__.__name__}): {hint}",
+                )
+            )
     return results
 
 

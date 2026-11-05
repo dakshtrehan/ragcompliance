@@ -8,8 +8,9 @@ Security fixes land on the latest minor release line. Older releases are not bac
 
 | Version | Supported |
 |---------|-----------|
-| 0.1.x (latest) | yes |
-| < 0.1.4 | no (known silent audit bug on langchain-core >= 1.3.0, see CHANGELOG 0.1.5) |
+| 1.0.x (including release candidates) | yes |
+| 0.1.8 | security fixes only until 1.0.0 final |
+| < 0.1.8 | no |
 
 If you are running a version older than the latest on PyPI, please upgrade before filing a report so we can reproduce on a supported build.
 
@@ -43,30 +44,27 @@ If a fix is going to take longer than 30 days for a high-severity issue, I will 
 
 - The `ragcompliance` Python package on PyPI.
 - The FastAPI dashboard shipped in `ragcompliance.app`.
-- The LangChain and LlamaIndex callback handlers.
+- The LangChain and LlamaIndex callback handlers, the OpenAI and Anthropic SDK wrappers, and the `Auditor` core.
+- The sinks (JSONL, SQLite, PostgreSQL, S3, Supabase), the hash chain and verifier, and the evidence pack exporter.
 - The SOC 2 evidence report generator (`ragcompliance.soc2`).
 - The Stripe billing reference implementation (`ragcompliance.billing`).
 
 **Out of scope** (these should be reported upstream):
 
-- Vulnerabilities in `langchain-core`, `llama-index-core`, `supabase`, `stripe`, or `authlib`.
+- Vulnerabilities in `langchain-core`, `llama-index-core`, `openai`, `anthropic`, `supabase`, `psycopg`, `boto3`, `stripe`, or `authlib`.
 - Vulnerabilities in the underlying Python runtime or OS.
 - Third-party services (Supabase, Stripe, your IdP) themselves.
 - Social engineering, physical attacks, or attacks requiring already-compromised credentials.
 
 ## Threat model at a glance
 
-RAGCompliance is middleware that writes one signed audit row per RAG chain invocation to storage you control. The main integrity promise is:
+The full threat model is in `docs/threat-model.md`. In short:
 
-- Given a stored record, an auditor can recompute `sha256(query + chunks + answer)` and detect post-hoc tampering on any of those three fields.
+- Integrity: every record carries a content signature over (query, chunks, answer) and is sealed into a hash chain (`prev_hash`, `record_hash`, `sequence`) per workspace and chain, optionally with an HMAC whose key lives outside the store. Edits, deletions, insertions and reordering are detectable with `ragcompliance verify`. Truncation of the newest records is detectable only against a recorded head hash; a consistent rewrite of the whole chain is detectable only with the HMAC key or a WORM store.
+- Confidentiality: redaction runs before hashing; alert payloads omit query text by default; dashboard reads are pinned to one workspace and all values are escaped. Supabase row level security is bypassed by the service role key the library uses, so it is not a tenant isolation control for this library.
+- Availability: audit bugs never propagate into the host pipeline (only the deliberate quota error does); dropped records are counted and reported.
 
-The main confidentiality promises are:
-
-- Row-level security on Supabase isolates rows per `workspace_id`. Cross-workspace reads require a compromised service-role key.
-- The dashboard ships wide open by default (for local dev). OIDC SSO is opt-in and documented in the README and docs site.
-- The billing readiness probe (`/health/billing`) sanitises all secrets; only prefixes like `sk_live…` ever leak.
-
-If you find a bug that breaks any of the promises above, please report it. That is the highest-priority class.
+If you find a bug that breaks any of the detection or confidentiality promises above, please report it. That is the highest-priority class.
 
 ## Safe harbour
 

@@ -42,6 +42,21 @@ class TestSelftest:
         res = selftest._check_chain_roundtrip()
         assert res.ok and res.data["head_hash"]
 
+    def test_broken_extra_is_reported_not_fatal(self, monkeypatch):
+        import importlib
+
+        real = importlib.import_module
+
+        def fake(name, *a, **k):
+            if name == "openai":
+                raise TypeError("upstream package broken on this interpreter")
+            return real(name, *a, **k)
+
+        monkeypatch.setattr(selftest.importlib, "import_module", fake)
+        results = {r.name: r for r in selftest._check_optional_extras()}
+        assert results["extras.openai"].ok is False
+        assert "failed to import (TypeError)" in results["extras.openai"].detail
+
     def test_config_check_handles_errors(self, monkeypatch):
         import ragcompliance.config as cfg_mod
 
