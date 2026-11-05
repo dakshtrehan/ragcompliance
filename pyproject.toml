@@ -89,7 +89,7 @@ include = [
     "tests/**",
     "examples/**",
     "sql/**",
-    "docs/*.md",
+    "docs/**/*.md",
     "mkdocs.yml",
     "README.md",
     "CHANGELOG.md",
