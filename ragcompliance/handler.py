@@ -370,8 +370,8 @@ class RAGComplianceHandler(_LCBase):  # type: ignore[misc]
             state = self._state_for(kwargs.get("run_id"))
             if state is None:
                 return
-            for i, doc in enumerate(documents or []):
-                state.chunks.append(coerce_chunk(doc, index=len(state.chunks) + i))
+            for doc in documents or []:
+                state.chunks.append(coerce_chunk(doc, index=len(state.chunks)))
 
     @_guarded
     def on_llm_end(self, response: Any, **kwargs: Any) -> None:

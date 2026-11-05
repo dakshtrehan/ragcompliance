@@ -36,19 +36,24 @@ from .storage import AuditStorage
 
 logger = logging.getLogger(__name__)
 
+_AUTO: Any = object()
+"""Sentinel: build the billing manager from the environment."""
+
 
 def create_app(
     config: RAGComplianceConfig | None = None,
     *,
     storage: AuditStorage | None = None,
-    billing: Any | None = None,
+    billing: Any = _AUTO,
     enable_sso: bool = True,
 ) -> FastAPI:
     """Build the dashboard application. Nothing touches the network until
-    the first request."""
+    the first request. Pass ``billing=None`` to disable the billing
+    endpoints; the default builds a ``BillingManager`` from the environment
+    when the ``billing`` extra is installed."""
     config = config or RAGComplianceConfig.from_env()
     storage = storage or AuditStorage(config)
-    if billing is None:
+    if billing is _AUTO:
         try:
             from .billing import BillingManager
 

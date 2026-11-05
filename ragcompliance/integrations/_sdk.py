@@ -115,6 +115,7 @@ class AuditedStream:
         self._model_fn = model_fn
         self._parts: list[str] = []
         self._done = False
+        self._model_seen = False
 
     # -- passthrough ------------------------------------------------- #
 
@@ -180,10 +181,13 @@ class AuditedStream:
             delta = self._delta_fn(event)
             if delta:
                 self._parts.append(delta)
-            if self._model_fn is not None and not self._trace.model_name:
+            if self._model_fn is not None and not self._model_seen:
                 model = self._model_fn(event)
                 if model:
+                    # The served model (from the response) wins over the
+                    # requested one recorded from the call parameters.
                     self._trace.model_name = model
+                    self._model_seen = True
         except Exception as exc:
             logger.debug("RAGCompliance: stream delta extraction failed (%s)", exc)
 

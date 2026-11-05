@@ -352,6 +352,7 @@ class LlamaIndexRAGComplianceHandler(_LIBase):  # type: ignore[misc]
         with self._lock:
             state = self._current_state_locked()
             if state is not None:
+                state.note_retriever("llamaindex.retrieve")
                 state.chunks.extend(new_chunks)
 
     def _on_llm_end(self, payload: Mapping[str, Any]) -> None:

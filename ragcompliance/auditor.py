@@ -350,7 +350,7 @@ class Auditor:
     def finalize(self, trace: Trace, *, outputs: Any = None) -> AuditRecord | None:
         """Build, redact, sign and store the record for a completed trace."""
         if not trace.llm_answer and outputs is not None:
-            trace.llm_answer = self.coerce_answer(outputs)
+            trace.llm_answer = self.coerce_answer(outputs, trace)
         record = self._build_record(trace, status="ok")
         self._persist(record)
         self._meter()
