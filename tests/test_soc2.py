@@ -21,7 +21,6 @@ from ragcompliance.soc2 import (
     generate_report,
 )
 
-
 # ------------------------------------------------------------------ #
 # Helpers                                                               #
 # ------------------------------------------------------------------ #
@@ -233,7 +232,7 @@ class TestFormatMd:
             stats,
             [],
         )
-        assert "# RAG Audit Evidence — ws-empty" in md
+        assert "# RAG Audit Evidence: ws-empty" in md
         assert "No records in the reporting period" in md
         # Every control still appears in the matrix.
         for ctrl in CONTROLS:
@@ -250,9 +249,9 @@ class TestFormatMd:
             recs,
         )
         assert "Signature (first 16)" in md
-        assert "Verified" in md
-        # Signature verified => checkmark.
-        assert "✅" in md
+        assert "Content verified" in md
+        # Signature verified => yes.
+        assert "| `" in md and "| yes |" in md
 
     def test_tampered_record_renders_x_mark(self):
         rec = _record()
@@ -265,7 +264,8 @@ class TestFormatMd:
             stats,
             [rec],
         )
-        assert "❌" in md
+        assert "| NO |" in md
+        assert "0 verified, 1 failed" in md
 
     def test_header_includes_period_days(self):
         md = _format_md(
@@ -295,52 +295,56 @@ class TestFormatMd:
 # ------------------------------------------------------------------ #
 
 
-class _FakeSupabaseQuery:
-    """A tiny fake that mirrors the chain supabase-py exposes:
-    client.table(x).select(...).eq(...).gte(...).lte(...).order(...).limit(...).execute()"""
+class _FakeStorage:
+    """Minimal stand-in for AuditStorage: a MemorySink preloaded with raw rows.
+
+    Records are sealed onto the chain so the report's chain section has
+    something to verify."""
+
+    def __init__(self, records: list[dict], workspace_id: str = "ws-test"):
+        from ragcompliance.sinks import MemorySink
+
+        self.sink = MemorySink()
+        for rec in records:
+            self.sink.append(rec)
+        self.config = SimpleNamespace(
+            table_name="rag_audit_logs",
+            workspace_id=workspace_id,
+            hmac_key_bytes=None,
+        )
+
+    def iter_records(self, **kwargs):
+        return self.sink.iter_records(**kwargs)
+
+    def describe(self):
+        return {"sink": self.sink.describe(), "dropped_count": 0}
+
+
+class _LegacySupabaseQuery:
+    """Mirrors the chain supabase-py exposes for the 0.1.x _client path."""
 
     def __init__(self, data: list[dict]):
         self._data = data
 
-    def select(self, *args, **kwargs):
-        return self
-
-    def eq(self, *args, **kwargs):
-        return self
-
-    def gte(self, *args, **kwargs):
-        return self
-
-    def lte(self, *args, **kwargs):
-        return self
-
-    def order(self, *args, **kwargs):
-        return self
-
-    def limit(self, *args, **kwargs):
-        return self
+    def __getattr__(self, name):
+        return lambda *a, **k: self
 
     def execute(self):
         return SimpleNamespace(data=self._data)
 
 
-class _FakeClient:
-    def __init__(self, data: list[dict]):
-        self._data = data
+class _LegacyStorage:
+    """0.1.x shaped storage: no iter_records, only a Supabase ``_client``."""
 
-    def table(self, name: str):
-        return _FakeSupabaseQuery(self._data)
+    def __init__(self, records: list[dict]):
+        data = list(records)
 
+        class _Client:
+            def table(self, name):
+                return _LegacySupabaseQuery(data)
 
-class _FakeStorage:
-    """Minimal stand-in for AuditStorage for generator tests."""
-
-    def __init__(self, records: list[dict], workspace_id: str = "ws-test"):
-        self._client = _FakeClient(records)
-        self.config = SimpleNamespace(
-            table_name="rag_audit_logs",
-            workspace_id=workspace_id,
-        )
+        self._client = _Client()
+        self.config = SimpleNamespace(table_name="rag_audit_logs", workspace_id="ws-test")
 
 
 class TestGenerateReport:
@@ -359,10 +363,11 @@ class TestGenerateReport:
             seed=1,
             storage=fake,
         )
-        assert "# RAG Audit Evidence — ws-test" in md
-        assert "Chain invocations captured: **3**" in md
-        # 100% integrity because every record is properly signed.
-        assert "Signature integrity: **100.0%**" in md
+        assert "# RAG Audit Evidence: ws-test" in md
+        assert "Records in scope: **3**" in md
+        # 100% integrity because every record is properly signed and verified.
+        assert "Content signature integrity: **100.0%**" in md
+        assert "Hash chain: **intact**" in md
         # Every control shows up.
         for ctrl in CONTROLS:
             assert ctrl["id"] in md
@@ -375,7 +380,7 @@ class TestGenerateReport:
             end="2026-01-31",
             storage=fake,
         )
-        assert "Chain invocations captured: **0**" in md
+        assert "Records in scope: **0**" in md
         assert "No records in the reporting period" in md
 
     def test_rejects_inverted_date_range(self):
@@ -389,15 +394,32 @@ class TestGenerateReport:
             )
 
     def test_raises_when_storage_has_no_client(self):
-        fake = _FakeStorage([])
-        fake._client = None
-        with pytest.raises(RuntimeError, match="live Supabase client"):
+        fake = SimpleNamespace(_client=None, config=SimpleNamespace(table_name="t"))
+        with pytest.raises(RuntimeError, match="iter_records"):
             generate_report(
                 workspace_id="ws",
                 start="2026-01-01",
                 end="2026-01-31",
                 storage=fake,
             )
+
+    def test_legacy_supabase_client_path_still_works(self):
+        recs = [_record(ts="2026-02-01T10:00:00+00:00")]
+        md = generate_report(
+            workspace_id="ws-test",
+            start="2026-01-01",
+            end="2026-03-01",
+            storage=_LegacyStorage(recs),
+        )
+        assert "Records in scope: **1**" in md
+        assert "1 legacy record(s) without chain fields" in md
+
+    def test_records_can_be_passed_directly(self):
+        recs = [_record(ts="2026-02-01T10:00:00+00:00")]
+        md = generate_report(
+            workspace_id="ws-test", start="2026-01-01", end="2026-03-01", records=recs
+        )
+        assert "records supplied by the caller" in md
 
 
 class TestDefaults:
@@ -410,7 +432,7 @@ class TestDefaults:
     def test_generate_report_default_sample_size_is_25(self):
         sig = inspect.signature(generate_report)
         assert sig.parameters["sample_size"].default == 25, (
-            "SOC 2 evidence default sample size must be 25 — see v0.1.6 "
+            "SOC 2 evidence default sample size must be 25: see v0.1.6 "
             "CHANGELOG entry. If you are intentionally changing this, "
             "update the CHANGELOG, README, and docs site in the same "
             "commit."

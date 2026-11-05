@@ -58,7 +58,7 @@ def _drive_one(h, trace_id: str, query: str, answer: str) -> None:
 def test_concurrent_traces_produce_distinct_records():
     """Ten threads, each running a distinct LlamaIndex trace through the
     same handler. Every saved record must have a matched (query, answer)
-    pair — no cross-contamination."""
+    pair: no cross-contamination."""
     h = _make_handler()
     saved = []
     saved_lock = threading.Lock()
@@ -98,7 +98,7 @@ def test_end_trace_cleans_up_pending_state():
 
 
 def test_storage_save_raises_does_not_kill_trace():
-    """A custom storage that raises must be caught — the handler logs and
+    """A custom storage that raises must be caught: the handler logs and
     moves on."""
 
     h = _make_handler()

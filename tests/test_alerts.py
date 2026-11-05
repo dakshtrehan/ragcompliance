@@ -10,7 +10,6 @@ import pytest
 
 from ragcompliance import AuditRecord, RetrievedChunk, SlackAlerter
 
-
 # ------------------------------------------------------------------ #
 # Local webhook catcher                                                #
 # ------------------------------------------------------------------ #
@@ -19,7 +18,7 @@ from ragcompliance import AuditRecord, RetrievedChunk, SlackAlerter
 class _Catcher(BaseHTTPRequestHandler):
     posts: list[dict] = []
 
-    def do_POST(self):  # noqa: N802 - BaseHTTPRequestHandler API
+    def do_POST(self):
         length = int(self.headers.get("Content-Length", 0))
         body = self.rfile.read(length)
         try:
@@ -121,7 +120,7 @@ class TestEvaluate:
             RetrievedChunk(content="c", source_url="u", chunk_id="x", similarity_score=None)
         ]
         fired = alerter.evaluate(make_record(retrieved_chunks=untyped_chunks))
-        # low_similarity rule should SKIP when no scores are present at all —
+        # low_similarity rule should SKIP when no scores are present at all -
         # we can't tell if retrieval was bad or just unscored.
         assert not any(r.name == "low_similarity" for r in fired)
 

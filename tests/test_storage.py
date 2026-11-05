@@ -38,62 +38,74 @@ class TestDevMode:
 
 class TestDisabledMode:
     def test_save_skips_when_disabled(self, sample_record):
-        config = RAGComplianceConfig(enabled=False)
+        config = RAGComplianceConfig(enabled=False, dev_mode=True)
         storage = AuditStorage(config)
         result = storage.save(sample_record)
         assert result is True  # Skips silently
+        assert storage.count() == 0
 
 
 class TestSupabaseMode:
-    def test_save_calls_supabase_insert(self, sample_record):
+    def _storage(self, mock_client, **cfg):
+        from ragcompliance.sinks.supabase import SupabaseSink
+
         config = RAGComplianceConfig(
             supabase_url="https://fake.supabase.co",
             supabase_key="fake-key",
             workspace_id="ws-prod",
+            async_writes=False,
+            **cfg,
         )
+        sink = SupabaseSink(client=mock_client, table=config.table_name)
+        return AuditStorage(config, sink=sink)
+
+    def test_save_calls_supabase_insert(self, sample_record):
         mock_client = MagicMock()
+        q = mock_client.table.return_value.select.return_value
+        q.eq.return_value = q
+        q.order.return_value = q
+        q.limit.return_value.execute.return_value = MagicMock(data=[])
         mock_client.table.return_value.insert.return_value.execute.return_value = MagicMock()
 
-        with patch("ragcompliance.storage.AuditStorage.__init__", lambda self, cfg: None):
-            storage = AuditStorage.__new__(AuditStorage)
-            storage.config = config
-            storage._client = mock_client
-
+        storage = self._storage(mock_client)
         result = storage.save(sample_record)
+
         assert result is True
-        mock_client.table.assert_called_once_with(config.table_name)
+        mock_client.table.assert_called_with(storage.config.table_name)
+        row = mock_client.table.return_value.insert.call_args[0][0]
+        # Layout 1: legacy columns only, chain fields nested under extra.
+        assert "record_hash" not in row
+        assert row["extra"]["_ragcompliance"]["sequence"] == 1
+        assert sample_record.sequence == 1
+        assert len(sample_record.record_hash) == 64
 
     def test_save_returns_false_on_supabase_error(self, sample_record):
-        config = RAGComplianceConfig(supabase_url="https://fake.supabase.co", supabase_key="key")
         mock_client = MagicMock()
+        q = mock_client.table.return_value.select.return_value
+        q.eq.return_value = q
+        q.order.return_value = q
+        q.limit.return_value.execute.return_value = MagicMock(data=[])
         mock_client.table.return_value.insert.return_value.execute.side_effect = Exception("DB error")
 
-        storage = AuditStorage.__new__(AuditStorage)
-        storage.config = config
-        storage._client = mock_client
-
+        storage = self._storage(mock_client)
         result = storage.save(sample_record)
         assert result is False
+        assert storage.dropped_count == 1
 
 
 class TestGetById:
-    """Single-record lookup pushes the filter to Supabase via .eq('id', ...)
-    rather than scanning an in-memory page. These tests verify the query
-    shape and the not-found / workspace-scoped behavior."""
+    """Single-record lookup pushes the filter to the backend via .eq('id', ...)."""
 
     def _storage_with_mock(self, mock_client, workspace_id="ws-prod"):
+        from ragcompliance.sinks.supabase import SupabaseSink
+
         config = RAGComplianceConfig(
             supabase_url="https://fake.supabase.co",
             supabase_key="fake-key",
             workspace_id=workspace_id,
+            async_writes=False,
         )
-        storage = AuditStorage.__new__(AuditStorage)
-        storage.config = config
-        storage._client = mock_client
-        storage._queue = None
-        storage._stop_event = None
-        storage._worker = None
-        return storage
+        return AuditStorage(config, sink=SupabaseSink(client=mock_client))
 
     def test_get_by_id_returns_record_when_found(self):
         mock_client = MagicMock()
@@ -106,11 +118,9 @@ class TestGetById:
 
         result = storage.get_by_id("rec-1", workspace_id="ws-prod")
 
-        assert result == {"id": "rec-1", "query": "hello"}
-        # The lookup must filter by id (and workspace when provided), not
-        # scan a large window and pick one in memory.
-        eq_calls = q.eq.call_args_list
-        eq_keys = {call.args[0] for call in eq_calls}
+        assert result is not None
+        assert result["id"] == "rec-1" and result["query"] == "hello"
+        eq_keys = {call.args[0] for call in q.eq.call_args_list}
         assert "id" in eq_keys
         assert "workspace_id" in eq_keys
 
@@ -120,9 +130,7 @@ class TestGetById:
         q.eq.return_value = q
         q.limit.return_value.execute.return_value = MagicMock(data=[])
         storage = self._storage_with_mock(mock_client)
-
-        result = storage.get_by_id("missing-id")
-        assert result is None
+        assert storage.get_by_id("missing-id") is None
 
     def test_get_by_id_returns_none_on_supabase_error(self):
         mock_client = MagicMock()
@@ -130,13 +138,11 @@ class TestGetById:
         q.eq.return_value = q
         q.limit.return_value.execute.side_effect = Exception("boom")
         storage = self._storage_with_mock(mock_client)
-
         assert storage.get_by_id("rec-1") is None
 
-    def test_get_by_id_returns_none_without_supabase_client(self):
-        config = RAGComplianceConfig(dev_mode=True)
+    def test_get_by_id_returns_none_without_sink(self):
+        config = RAGComplianceConfig()  # no sink, not dev mode
         storage = AuditStorage(config)
-        # No supabase client configured -> returns None rather than a fake hit.
         assert storage.get_by_id("rec-1") is None
 
 

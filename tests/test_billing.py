@@ -1,4 +1,4 @@
-"""Tests for ragcompliance.billing — no live Stripe or Supabase calls."""
+"""Tests for ragcompliance.billing: no live Stripe or Supabase calls."""
 
 from __future__ import annotations
 
@@ -12,7 +12,6 @@ from ragcompliance.billing import (
     WorkspaceSubscription,
     refresh_plans,
 )
-
 
 # --------------------------------------------------------------------------- #
 # PLANS                                                                        #

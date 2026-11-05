@@ -120,7 +120,7 @@ class TestChainSignature:
 
 class TestChainEnd:
     """The handler finalizes only when the OUTERMOST chain ends. Inner
-    LCEL sub-runnables fire on_chain_end too — those are ignored because
+    LCEL sub-runnables fire on_chain_end too: those are ignored because
     their run_id isn't in ``_runs`` (only root run_ids live there)."""
 
     def test_saves_record_on_chain_end(self, handler):

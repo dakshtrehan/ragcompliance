@@ -3,11 +3,11 @@ Tests for ragcompliance.redaction.
 
 These cover three layers:
 
-1. Pattern correctness — each built-in pattern hits what it should and
+1. Pattern correctness: each built-in pattern hits what it should and
    does not false-positive on common decoy strings.
-2. Redactor behavior — order resolution, custom patterns, replacement
+2. Redactor behavior: order resolution, custom patterns, replacement
    templating, no-op on empty input.
-3. End-to-end through the handler — when redact_pii is on, the
+3. End-to-end through the handler: when redact_pii is on, the
    AuditRecord written to dev-mode storage has redacted fields, the
    chain signature is computed over the redacted payload, and findings
    land in extra["redaction_findings"].
@@ -30,7 +30,6 @@ from ragcompliance.redaction import (
     Redactor,
     redact,
 )
-
 
 # ----------------------------------------------------------------------
 # Pattern correctness
@@ -93,7 +92,7 @@ class TestPhoneUS:
         assert "[REDACTED:PHONE_US]" in redact("dial +1 (415) 555-1234")
 
     def test_skips_long_id(self):
-        # 10 digits with no separator should not match — phone regex
+        # 10 digits with no separator should not match: phone regex
         # requires at least one separator
         out = redact("transaction 4155551234 logged")
         assert "REDACTED" not in out
@@ -168,7 +167,7 @@ class TestRedactorBehavior:
 
     def test_default_pattern_set_completeness(self):
         # All names in DEFAULT_PATTERN_ORDER must resolve in
-        # BUILTIN_PATTERNS — guards against typos in the default list.
+        # BUILTIN_PATTERNS: guards against typos in the default list.
         for name in DEFAULT_PATTERN_ORDER:
             assert name in BUILTIN_PATTERNS
 
@@ -209,7 +208,7 @@ class TestHandlerIntegration:
         llm_id = uuid4()
         handler.on_llm_start({}, [query],
                              run_id=llm_id, parent_run_id=run_id)
-        from langchain_core.outputs import LLMResult, Generation
+        from langchain_core.outputs import Generation, LLMResult
         result = LLMResult(generations=[[Generation(text=answer)]],
                            llm_output={"model_name": "gpt-4o-mini"})
         handler.on_llm_end(result, run_id=llm_id, parent_run_id=run_id)
@@ -230,7 +229,7 @@ class TestHandlerIntegration:
             )
             assert save.called
             record = save.call_args[0][0]
-            # Raw values still present — handler did not redact
+            # Raw values still present: handler did not redact
             assert "alice@hospital.org" in record.query
             assert "REDACTED" not in record.query
             assert "redaction_findings" not in record.extra
@@ -266,7 +265,7 @@ class TestHandlerIntegration:
 
     def test_signature_is_over_redacted_payload(self):
         """An auditor reproducing the chain signature must be able to do
-        so from the redacted record alone — no access to raw secrets."""
+        so from the redacted record alone: no access to raw secrets."""
         import hashlib
         import json as _json
 

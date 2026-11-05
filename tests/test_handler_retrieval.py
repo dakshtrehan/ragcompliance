@@ -4,7 +4,7 @@ These tests exist because of the v0.1.4 -> v0.1.5 bug where
 ``retrieved_chunks`` were silently dropped from the audit record on
 langchain-core >=1.3.0. The handler only overrode ``on_chain_start``, so
 ``on_retriever_start`` fired with a ``parent_run_id`` that was never
-recorded in ``_run_parents`` — and the matching ``on_retriever_end``
+recorded in ``_run_parents``: and the matching ``on_retriever_end``
 could not walk up to the tracked root audit state.
 
 Every test here simulates a real LangChain event sequence (start /
@@ -112,7 +112,7 @@ def test_retriever_chunks_captured_via_lcel():
 
 
 def test_retriever_chunks_captured_via_batch():
-    """chain.batch([q1, q2, q3]) — each of the three saved records must
+    """chain.batch([q1, q2, q3]): each of the three saved records must
     have its own chunks paired correctly with its own query and answer."""
     h, saved = _make_handler()
     pairs = [
@@ -217,7 +217,7 @@ def test_llm_start_parent_registered():
     on_chain_end fallback that coerces outputs. But if someone later
     removes that fallback, we want to catch the silent drop immediately
     via on_llm_start parent registration. This test asserts the llm-end
-    path — specifically model_name — works even with no chain-outputs
+    path: specifically model_name: works even with no chain-outputs
     fallback."""
     h, saved = _make_handler()
     root = uuid.uuid4()
@@ -232,7 +232,7 @@ def test_llm_start_parent_registered():
         ),
         run_id=llm,
     )
-    # No outputs dict — on_chain_end falls back to state.llm_answer, which
+    # No outputs dict: on_chain_end falls back to state.llm_answer, which
     # is only populated if on_llm_end's parent resolution worked.
     h.on_chain_end({}, run_id=root)
 
@@ -244,7 +244,7 @@ def test_llm_start_parent_registered():
 
 def test_concurrent_invokes_all_have_chunks():
     """10 threads, shared handler, each runs its own chain. Every saved
-    record must have a matching query, answer, AND its own chunks —
+    record must have a matching query, answer, AND its own chunks -
     regression guard combining the v0.1.4 batch fix with the v0.1.5
     retriever fix."""
     h, saved = _make_handler()

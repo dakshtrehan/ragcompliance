@@ -1,92 +1,93 @@
-"""
-RAGCompliance — LangChain callback handler for RAG audit trails.
+"""LangChain callback handler.
 
-Usage:
+Usage::
+
     from ragcompliance import RAGComplianceHandler, RAGComplianceConfig
 
-    config = RAGComplianceConfig.from_env()
-    handler = RAGComplianceHandler(config=config, session_id="user-123")
-
-    # Pass to any LangChain chain — including chain.batch() and concurrent
-    # chain.invoke() / chain.ainvoke() calls on the same handler instance.
+    handler = RAGComplianceHandler(config=RAGComplianceConfig.from_env(), session_id="user-123")
     chain.invoke({"query": "..."}, config={"callbacks": [handler]})
+
+Per invocation attribution goes through LangChain metadata::
+
+    chain.invoke(
+        {"query": "..."},
+        config={
+            "callbacks": [handler],
+            "metadata": {"ragcompliance_actor": {"id": "alice@example.com", "type": "user"}},
+        },
+    )
+
+The handler is a thin adapter: it routes LangChain callback events to a
+per run ``Trace`` and hands the finished trace to ``Auditor`` (see
+``auditor.py``) which redacts, signs, stores, meters and alerts.
+
+Thread safety: per invocation state is kept in a lock guarded dict keyed
+by the root ``run_id`` LangChain assigns to each top level call, so a
+single handler can be shared across ``chain.batch(...)`` and concurrent
+``invoke`` / ``ainvoke`` calls.
 """
 
-import hashlib
-import json
+from __future__ import annotations
+
+import functools
 import logging
 import os
-import threading
-import time
 import uuid
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
-from langchain_core.callbacks import BaseCallbackHandler
-from langchain_core.documents import Document
-from langchain_core.outputs import LLMResult
-
-from .alerts import SlackAlerter
+from .auditor import Auditor, QuotaExceededError, Trace, coerce_chunk
 from .config import RAGComplianceConfig
-from .models import AuditRecord, RetrievedChunk
 from .storage import AuditStorage
 
 logger = logging.getLogger(__name__)
 
+try:
+    import langchain_core
+    from langchain_core.callbacks import BaseCallbackHandler as _LCBase
 
-def _bump(dst: dict, src: dict) -> None:
-    """Add per-pattern hit counts from src into dst in place."""
-    for k, v in src.items():
-        dst[k] = dst.get(k, 0) + v
+    _LANGCHAIN_AVAILABLE = True
+    _LANGCHAIN_VERSION = getattr(langchain_core, "__version__", "")
+except ImportError:  # pragma: no cover - exercised only without the extra
+    _LCBase = object  # type: ignore[assignment,misc]
+    _LANGCHAIN_AVAILABLE = False
+    _LANGCHAIN_VERSION = ""
 
 
 @dataclass
-class _RunState:
-    """Per-invocation state for one root chain run.
+class _RunState(Trace):
+    """Per root run capture state plus the transitive set of descendant
+    run ids, used to clean ``_run_parents`` when the root finishes."""
 
-    A single ``RAGComplianceHandler`` instance holds one of these per
-    concurrently-running root chain, keyed by root ``run_id``. This is what
-    makes ``chain.batch([q1, q2, q3])`` and concurrent ``chain.invoke(...)``
-    calls on a shared handler correct: events are routed to the right
-    per-run state instead of clobbering a single instance-level buffer.
-    """
-
-    query: str = ""
-    chunks: list[RetrievedChunk] = field(default_factory=list)
-    llm_answer: str = ""
-    model_name: str = ""
-    start_time: float = 0.0
-    # Transitive set of descendant run_ids (every inner LCEL sub-runnable
-    # whose on_chain_start fired with this run as an ancestor). Used to
-    # clean up ``_run_parents`` when the root finishes.
     descendants: set = field(default_factory=set)
 
 
-class RAGComplianceHandler(BaseCallbackHandler):
-    """
-    LangChain callback handler that captures the full RAG chain —
-    query, retrieved chunks with scores and sources, and LLM answer —
-    signs everything with SHA-256, and persists to Supabase.
+def _guarded(method: Callable[..., Any]) -> Callable[..., Any]:
+    """Never let a bug in the audit handler take down the user's chain.
 
-    Thread safety
-    -------------
-    This handler is safe to share across concurrent chain invocations and
-    across ``chain.batch(...)`` calls. Per-invocation state is kept in a
-    lock-guarded ``dict`` keyed by the root ``run_id`` LangChain assigns to
-    each top-level call, so events from different invocations cannot
-    interleave. The built-in ``AuditStorage``, ``BillingManager``, and
-    ``SlackAlerter`` objects are also safe to share.
-
-    The one pragmatic guard is ``RAGCOMPLIANCE_MAX_PENDING_RUNS`` (default
-    10000): if on_chain_end is never delivered for some runs (crashed host
-    process, misconfigured callbacks), the oldest pending run state is
-    evicted with a warning so the handler can't leak unbounded memory.
+    ``raise_error = True`` is required so the deliberate quota error reaches
+    the caller, but it also means any exception escaping a callback kills
+    the chain. Everything except ``QuotaExceededError`` is logged instead.
     """
 
-    # Propagate exceptions raised inside our callback methods instead of
-    # swallowing them. Required so the quota-exceeded RuntimeError raised in
-    # on_chain_start actually blocks the chain rather than being logged and
-    # ignored by LangChain's default observability behavior.
+    @functools.wraps(method)
+    def wrapper(self: Any, *args: Any, **kwargs: Any) -> Any:
+        try:
+            return method(self, *args, **kwargs)
+        except QuotaExceededError:
+            raise
+        except Exception:
+            logger.exception("RAGCompliance: %s failed; audit capture degraded", method.__name__)
+            return None
+
+    return wrapper
+
+
+class RAGComplianceHandler(_LCBase):  # type: ignore[misc]
+    """LangChain callback handler that captures the full RAG chain and
+    hands it to the ``Auditor``."""
+
     raise_error = True
 
     def __init__(
@@ -95,139 +96,153 @@ class RAGComplianceHandler(BaseCallbackHandler):
         session_id: str | None = None,
         extra: dict[str, Any] | None = None,
         billing: Any | None = None,
-        alerter: SlackAlerter | None = None,
+        alerter: Any | None = None,
         redactor: Any | None = None,
+        storage: AuditStorage | None = None,
+        actor: dict[str, Any] | None = None,
+        auditor: Auditor | None = None,
     ):
-        super().__init__()
-        self.config = config or RAGComplianceConfig.from_env()
-        self.storage = AuditStorage(self.config)
-        self.session_id = session_id or str(uuid.uuid4())
-        self.extra = extra or {}
-
-        # Optional PII / PHI redactor (added in 0.1.8). When the config
-        # flag is on we instantiate the default RegexRedactor; an
-        # operator can override by passing a fully constructed Redactor
-        # (or any object exposing redact_record_fields()). When off the
-        # attribute is None and on_chain_end short-circuits the
-        # redaction path entirely so 0.1.7 behavior is preserved bit-
-        # for-bit on the hot path.
-        if redactor is not None:
-            self.redactor = redactor
-        elif self.config.redact_pii:
-            from .redaction import Redactor
-            self.redactor = Redactor(
-                patterns=self.config.redaction_patterns,
-                replacement=self.config.redaction_replacement,
+        if not _LANGCHAIN_AVAILABLE:
+            raise ImportError(
+                "langchain-core is not installed. Install with: pip install 'ragcompliance[langchain]'"
             )
-        else:
-            self.redactor = None
-
-        # Optional billing manager for quota + usage metering. Lazy import so
-        # `stripe` only becomes required when billing features are used.
-        if billing is None:
-            try:
-                from .billing import BillingManager
-                self.billing = BillingManager.from_env()
-            except Exception as e:  # stripe missing, bad env, etc.
-                logger.debug(f"RAGCompliance: billing disabled ({e})")
-                self.billing = None
-        else:
-            self.billing = billing
-
-        # Optional Slack alerter. Opt-in via RAGCOMPLIANCE_SLACK_WEBHOOK_URL.
-        # When not configured this stays None so evaluate() overhead is skipped.
-        if alerter is None:
-            try:
-                self.alerter = SlackAlerter.from_env()
-            except Exception as e:
-                logger.debug(f"RAGCompliance: alerter disabled ({e})")
-                self.alerter = None
-        else:
-            self.alerter = alerter
-
-        # Per-run state. _runs holds one _RunState per root (top-level) run,
-        # keyed by root run_id. _run_parents maps inner runnable run_id →
-        # its parent run_id so we can walk up to the root in O(depth).
-        # _lock guards both dicts.
+        super().__init__()
+        self.auditor = auditor or Auditor(
+            config,
+            session_id=session_id,
+            extra=extra,
+            actor=actor,
+            billing=billing,
+            alerter=alerter,
+            redactor=redactor,
+            storage=storage,
+            framework="langchain",
+            framework_version=_LANGCHAIN_VERSION,
+        )
         self._runs: dict[Any, _RunState] = {}
         self._run_parents: dict[Any, Any] = {}
-        self._lock = threading.Lock()
+        import threading
 
-        try:
-            self._max_pending_runs = max(
-                1, int(os.getenv("RAGCOMPLIANCE_MAX_PENDING_RUNS", "10000"))
-            )
-        except ValueError:
-            self._max_pending_runs = 10000
+        self._lock = threading.Lock()
+        self._max_pending_runs = self._resolve_max_pending()
         self._pending_cap_warned = False
 
+    def _resolve_max_pending(self) -> int:
+        raw = os.getenv("RAGCOMPLIANCE_MAX_PENDING_RUNS")
+        if raw:
+            try:
+                return max(1, int(raw))
+            except ValueError:
+                return 10000
+        return max(1, int(self.auditor.config.max_pending_runs))
+
     # ------------------------------------------------------------------ #
-    # Root resolution helpers                                              #
+    # Compatibility properties (0.1.x public attributes)                 #
+    # ------------------------------------------------------------------ #
+
+    @property
+    def config(self) -> RAGComplianceConfig:
+        return self.auditor.config
+
+    @property
+    def storage(self) -> AuditStorage:
+        return self.auditor.storage
+
+    @storage.setter
+    def storage(self, value: AuditStorage) -> None:
+        self.auditor.storage = value
+
+    @property
+    def session_id(self) -> str:
+        return self.auditor.session_id
+
+    @session_id.setter
+    def session_id(self, value: str) -> None:
+        self.auditor.session_id = value
+
+    @property
+    def extra(self) -> dict[str, Any]:
+        return self.auditor.extra
+
+    @property
+    def redactor(self) -> Any:
+        return self.auditor.redactor
+
+    @redactor.setter
+    def redactor(self, value: Any) -> None:
+        self.auditor.redactor = value
+
+    @property
+    def billing(self) -> Any:
+        return self.auditor.billing
+
+    @billing.setter
+    def billing(self, value: Any) -> None:
+        self.auditor.billing = value
+
+    @property
+    def alerter(self) -> Any:
+        return self.auditor.alerter
+
+    @alerter.setter
+    def alerter(self, value: Any) -> None:
+        self.auditor.alerter = value
+
+    @property
+    def actor(self) -> dict[str, Any]:
+        return self.auditor.actor
+
+    # ------------------------------------------------------------------ #
+    # Root resolution helpers                                            #
     # ------------------------------------------------------------------ #
 
     def _resolve_root(self, run_id: Any) -> Any | None:
-        """Walk ``_run_parents`` upward from ``run_id`` to find a tracked
-        root. Returns the root run_id or None if the run isn't trackable
-        (e.g. callback fired for an unknown inner runnable). Caller must
-        hold ``self._lock``."""
+        """Walk ``_run_parents`` upward to a tracked root. A missing
+        ``run_id`` resolves to the only pending root when exactly one is in
+        flight (direct calls without LangChain, see AUDIT.md B01). Caller
+        holds ``self._lock``."""
         if run_id is None:
-            return None
+            return next(iter(self._runs)) if len(self._runs) == 1 else None
         if run_id in self._runs:
             return run_id
         current = run_id
-        seen = set()
+        seen: set[Any] = set()
         while current is not None:
             if current in self._runs:
                 return current
-            if current in seen:  # cycle guard — should never happen
+            if current in seen:
                 return None
             seen.add(current)
-            parent = self._run_parents.get(current)
-            if parent is None:
-                return None
-            current = parent
+            current = self._run_parents.get(current)
         return None
 
-    def _register_descendant(
-        self, run_id: Any, parent_run_id: Any
-    ) -> None:
-        """Track a child ``run_id`` under its parent so later ``*_end``
-        events can resolve back to the correct root audit state.
-
-        Called from every ``on_*_start`` callback that fires for an inner
-        runnable (chain, retriever, LLM, chat model, tool, ...). Without
-        this, a child's ``run_id`` never lands in ``_run_parents`` and
-        ``_resolve_root`` walks off the end, silently dropping whatever
-        that child produced from the audit record.
-
-        No-op when either id is missing or when the parent isn't
-        traceable to a tracked root (e.g. callback fired for a runnable
-        whose root chain never started, or whose root has already
-        finished). Caller must NOT hold ``self._lock``.
-        """
+    def _register_descendant(self, run_id: Any, parent_run_id: Any) -> Any | None:
+        """Record ``run_id`` under ``parent_run_id`` and return the root it
+        resolves to (or None)."""
         if run_id is None or parent_run_id is None:
-            return
+            return None
         with self._lock:
             self._run_parents[run_id] = parent_run_id
             root_id = self._resolve_root(parent_run_id)
             if root_id is not None:
-                root_state = self._runs.get(root_id)
-                if root_state is not None:
-                    root_state.descendants.add(run_id)
+                state = self._runs.get(root_id)
+                if state is not None:
+                    state.descendants.add(run_id)
+            return root_id
+
+    def _state_for(self, run_id: Any) -> _RunState | None:
+        """Caller holds the lock."""
+        root_id = self._resolve_root(run_id)
+        return self._runs.get(root_id) if root_id is not None else None
 
     def _enforce_pending_cap_locked(self) -> None:
-        """Evict oldest root runs if we're over the soft cap. Caller holds
-        the lock."""
         if len(self._runs) <= self._max_pending_runs:
             return
         if not self._pending_cap_warned:
             logger.warning(
-                "RAGCompliance: pending run state exceeded "
-                "RAGCOMPLIANCE_MAX_PENDING_RUNS=%d; evicting oldest runs. "
-                "This usually means on_chain_end is not being delivered for "
-                "some chains (crashed workers, misconfigured callbacks, or "
-                "handlers shared across processes). Raise the env var if "
-                "this is expected.",
+                "RAGCompliance: pending run state exceeded RAGCOMPLIANCE_MAX_PENDING_RUNS=%d; "
+                "evicting oldest runs. This usually means on_chain_end is not being delivered "
+                "for some chains. Raise the limit if this is expected.",
                 self._max_pending_runs,
             )
             self._pending_cap_warned = True
@@ -237,330 +252,252 @@ class RAGComplianceHandler(BaseCallbackHandler):
             for child_id in victim_state.descendants:
                 self._run_parents.pop(child_id, None)
 
+    def _pop_root(self, run_id: Any) -> _RunState | None:
+        with self._lock:
+            if run_id is None:
+                run_id = self._resolve_root(None)
+            if run_id not in self._runs:
+                return None
+            state = self._runs.pop(run_id)
+            for child_id in state.descendants:
+                self._run_parents.pop(child_id, None)
+            return state
+
     # ------------------------------------------------------------------ #
-    # Query capture                                                        #
+    # Chain start / end                                                  #
     # ------------------------------------------------------------------ #
 
-    def on_chain_start(
-        self, serialized: dict[str, Any], inputs: Any, **kwargs: Any
-    ) -> None:
+    @_guarded
+    def on_chain_start(self, serialized: Any, inputs: Any, **kwargs: Any) -> None:
         run_id = kwargs.get("run_id")
         parent_run_id = kwargs.get("parent_run_id")
 
         if parent_run_id is not None:
-            # Inner LCEL sub-runnable — record the parent mapping so later
-            # retriever/llm events can resolve to the correct root, and add
-            # this run_id to the root's descendants set for O(1) cleanup.
             self._register_descendant(run_id, parent_run_id)
             return
 
-        # Root chain starting. Create fresh per-run state.
-        # run_id is None only when on_chain_start is invoked directly (e.g.
-        # from tests). Synthesize one so the rest of the callback surface
-        # still routes correctly.
         if run_id is None:
             run_id = uuid.uuid4()
-            # Stash on kwargs so the caller can read it back if desired.
             kwargs["run_id"] = run_id
 
+        metadata = kwargs.get("metadata") or {}
+        actor, extra = _actor_and_extra_from_metadata(metadata)
+        base = self.auditor.new_trace(actor=actor, extra=extra)
         state = _RunState(
-            query=self._coerce_query(inputs),
-            start_time=time.time(),
+            actor=base.actor, extra=base.extra, chunks=base.chunks,
         )
+        state.query = self.auditor.coerce_query(inputs, state)
+        tags = kwargs.get("tags")
+        if tags:
+            state.lineage["tags"] = [str(t) for t in tags]
+        if isinstance(serialized, Mapping) and serialized.get("name"):
+            state.lineage["chain"] = str(serialized["name"])
+        elif kwargs.get("name"):
+            state.lineage["chain"] = str(kwargs["name"])
+
         with self._lock:
             self._runs[run_id] = state
             self._enforce_pending_cap_locked()
 
-        # Billing quota check runs outside the lock — we don't want to hold
-        # it while calling into a potentially slow billing backend.
-        if self.billing is not None:
-            try:
-                within = self.billing.check_query_quota(self.config.workspace_id)
-            except Exception as e:
-                logger.debug(f"RAGCompliance: quota check errored, allowing ({e})")
-                within = True
-            if not within:
-                msg = (
-                    f"RAGCompliance: workspace {self.config.workspace_id!r} "
-                    "has exceeded its plan query quota for the current period."
-                )
-                if self.config.enforce_quota:
-                    raise RuntimeError(msg)
-                logger.warning(msg)
+        # Quota check outside the lock; raises QuotaExceededError when enforced.
+        self.auditor.check_quota()
 
-    # ------------------------------------------------------------------ #
-    # Parent registration for non-chain runnables                          #
-    # ------------------------------------------------------------------ #
-    # LangChain fires on_retriever_start, on_llm_start, on_chat_model_start,
-    # and on_tool_start with their own fresh run_id and the parent chain's
-    # run_id as parent_run_id. Without these overrides the child run_id is
-    # never recorded in _run_parents, so the matching on_*_end event can't
-    # walk up to the root audit state and the event's payload (chunks, llm
-    # answer, tool output) is silently dropped.
-    #
-    # This became a visible correctness bug on langchain-core >=1.3.0 where
-    # retrievers stopped double-firing on_chain_start — the handler was
-    # accidentally relying on that old side channel in 0.1.4.
-
-    def on_retriever_start(
-        self, serialized: dict[str, Any], query: str, **kwargs: Any
-    ) -> None:
-        self._register_descendant(
-            kwargs.get("run_id"), kwargs.get("parent_run_id")
-        )
-
-    def on_llm_start(
-        self, serialized: dict[str, Any], prompts: list[str], **kwargs: Any
-    ) -> None:
-        self._register_descendant(
-            kwargs.get("run_id"), kwargs.get("parent_run_id")
-        )
-
-    def on_chat_model_start(
-        self, serialized: dict[str, Any], messages: Any, **kwargs: Any
-    ) -> None:
-        """LangChain's chat-model path; same routing need as on_llm_start."""
-        self._register_descendant(
-            kwargs.get("run_id"), kwargs.get("parent_run_id")
-        )
-
-    def on_tool_start(
-        self, serialized: dict[str, Any], input_str: str, **kwargs: Any
-    ) -> None:
-        self._register_descendant(
-            kwargs.get("run_id"), kwargs.get("parent_run_id")
-        )
-
-    # ------------------------------------------------------------------ #
-    # Retriever capture                                                    #
-    # ------------------------------------------------------------------ #
-
-    def on_retriever_end(
-        self, documents: list[Document], **kwargs: Any
-    ) -> None:
-        run_id = kwargs.get("run_id")
-        with self._lock:
-            root_id = self._resolve_root(run_id)
-            if root_id is None:
-                return
-            state = self._runs.get(root_id)
-            if state is None:
-                return
-            for i, doc in enumerate(documents):
-                meta = doc.metadata or {}
-                state.chunks.append(
-                    RetrievedChunk(
-                        content=doc.page_content,
-                        source_url=str(meta.get("source", meta.get("url", "unknown"))),
-                        chunk_id=str(meta.get("chunk_id", meta.get("id", f"chunk-{i}"))),
-                        similarity_score=meta.get("score", meta.get("similarity_score")),
-                        metadata={
-                            k: v
-                            for k, v in meta.items()
-                            if k not in (
-                                "source", "url", "chunk_id", "id", "score",
-                                "similarity_score",
-                            )
-                        },
-                    )
-                )
-
-    # ------------------------------------------------------------------ #
-    # LLM answer capture                                                   #
-    # ------------------------------------------------------------------ #
-
-    def on_llm_end(self, response: LLMResult, **kwargs: Any) -> None:
-        run_id = kwargs.get("run_id")
-        with self._lock:
-            root_id = self._resolve_root(run_id)
-            if root_id is None:
-                return
-            state = self._runs.get(root_id)
-            if state is None:
-                return
-            try:
-                state.llm_answer = response.generations[0][0].text
-            except (IndexError, AttributeError):
-                state.llm_answer = str(response)
-            if response.llm_output:
-                state.model_name = (
-                    response.llm_output.get("model_name", "") or state.model_name
-                )
-
-    # ------------------------------------------------------------------ #
-    # Chain end — build, sign, and persist the audit record               #
-    # ------------------------------------------------------------------ #
-
+    @_guarded
     def on_chain_end(self, outputs: Any, **kwargs: Any) -> None:
-        run_id = kwargs.get("run_id")
-
-        # Pop the root's state atomically. If run_id isn't a tracked root,
-        # this is an inner runnable — do nothing and let the root finalize.
-        with self._lock:
-            if run_id not in self._runs:
-                return
-            state = self._runs.pop(run_id)
-            for child_id in state.descendants:
-                self._run_parents.pop(child_id, None)
-
-        # Finalize outside the lock to avoid holding it during storage I/O.
+        state = self._pop_root(kwargs.get("run_id"))
+        if state is None:
+            return
         if not state.llm_answer:
-            state.llm_answer = self._coerce_answer(outputs)
+            state.llm_answer = self.auditor.coerce_answer(outputs, state)
+        self.auditor.finalize(state)
 
-        # ----------------------------------------------------------- #
-        # PII / PHI redaction (0.1.8).                                #
-        #                                                             #
-        # Runs BEFORE the chain signature is computed so the          #
-        # signature is over the redacted payload — an auditor         #
-        # reproducing the signature does not need access to raw       #
-        # secrets. Findings (per-pattern hit counts) land in          #
-        # extra["redaction_findings"] so dashboards and SOC 2         #
-        # evidence reports can surface which records had sensitive    #
-        # data and what kind.                                         #
-        # ----------------------------------------------------------- #
-        record_extra = dict(self.extra)
-        if self.redactor is not None:
-            findings: dict[str, int] = {}
-            q_res = self.redactor.redact(state.query)
-            state.query = q_res.text
-            _bump(findings, q_res.findings)
-            for c in state.chunks:
-                content_res = self.redactor.redact(c.content)
-                url_res = self.redactor.redact(c.source_url)
-                c.content = content_res.text
-                c.source_url = url_res.text
-                _bump(findings, content_res.findings)
-                _bump(findings, url_res.findings)
-            ans_res = self.redactor.redact(state.llm_answer)
-            state.llm_answer = ans_res.text
-            _bump(findings, ans_res.findings)
-            if findings:
-                record_extra["redaction_findings"] = findings
-
-        latency_ms = int((time.time() - state.start_time) * 1000)
-        signature = self._sign_chain(state)
-        record = AuditRecord(
-            session_id=self.session_id,
-            workspace_id=self.config.workspace_id,
-            query=state.query,
-            retrieved_chunks=state.chunks,
-            llm_answer=state.llm_answer,
-            model_name=state.model_name,
-            chain_signature=signature,
-            latency_ms=latency_ms,
-            extra=record_extra,
-        )
-
-        # Defensive save: the built-in Supabase storage catches its own
-        # errors, but a user-supplied custom storage backend might raise.
-        # A compliance library must never take down the host chain because
-        # its own audit write failed.
-        try:
-            self.storage.save(record)
-        except Exception as e:
-            logger.error(
-                "RAGCompliance: storage.save raised (%s); dropping audit "
-                "record for session=%r. This should not normally happen — "
-                "the built-in Supabase storage catches its own errors. If "
-                "you wrote a custom storage backend, it must not raise.",
-                e, self.session_id,
-            )
-
-        # Best-effort usage metering; never let a metering failure break
-        # the chain.
-        if self.billing is not None:
-            try:
-                self.billing.increment_usage(self.config.workspace_id)
-            except Exception as e:
-                logger.debug(f"RAGCompliance: increment_usage errored ({e})")
-
-        # Best-effort anomaly alerting. Runs after save() so any alert can
-        # link back to a persisted row, and after increment_usage so
-        # metering isn't gated on alert evaluation succeeding.
-        if self.alerter is not None:
-            try:
-                self.alerter.maybe_alert(record)
-            except Exception as e:
-                logger.debug(f"RAGCompliance: alerter.maybe_alert errored ({e})")
+    @_guarded
+    def on_chain_error(self, error: BaseException, **kwargs: Any) -> None:
+        state = self._pop_root(kwargs.get("run_id"))
+        if state is None:
+            return
+        logger.error("RAGCompliance: chain error: %s", error)
+        self.auditor.fail(state, error)
 
     # ------------------------------------------------------------------ #
-    # Helpers                                                              #
+    # Inner runnable starts                                              #
     # ------------------------------------------------------------------ #
 
-    def _sign_chain(self, state: _RunState) -> str:
-        """SHA-256 of the full chain: query + chunks + answer."""
-        payload = {
-            "query": state.query,
-            "chunks": [
-                {"content": c.content, "source_url": c.source_url, "chunk_id": c.chunk_id}
-                for c in state.chunks
-            ],
-            "answer": state.llm_answer,
-        }
-        raw = json.dumps(payload, sort_keys=True, default=str)
-        return hashlib.sha256(raw.encode()).hexdigest()
+    @_guarded
+    def on_retriever_start(self, serialized: Any, query: str, **kwargs: Any) -> None:
+        root = self._register_descendant(kwargs.get("run_id"), kwargs.get("parent_run_id"))
+        name = _name_of(serialized, kwargs)
+        if root is not None and name:
+            with self._lock:
+                state = self._runs.get(root)
+                if state is not None:
+                    state.note_retriever(name)
+
+    @_guarded
+    def on_llm_start(self, serialized: Any, prompts: list[str], **kwargs: Any) -> None:
+        root = self._register_descendant(kwargs.get("run_id"), kwargs.get("parent_run_id"))
+        self._note_model_call(root, kwargs, "\n".join(str(p) for p in (prompts or [])))
+
+    @_guarded
+    def on_chat_model_start(self, serialized: Any, messages: Any, **kwargs: Any) -> None:
+        root = self._register_descendant(kwargs.get("run_id"), kwargs.get("parent_run_id"))
+        self._note_model_call(root, kwargs, _render_messages(messages))
+
+    @_guarded
+    def on_tool_start(self, serialized: Any, input_str: str, **kwargs: Any) -> None:
+        self._register_descendant(kwargs.get("run_id"), kwargs.get("parent_run_id"))
+
+    def _note_model_call(self, root: Any, kwargs: Mapping[str, Any], prompt: str) -> None:
+        if root is None:
+            return
+        params = kwargs.get("invocation_params")
+        with self._lock:
+            state = self._runs.get(root)
+            if state is None:
+                return
+            if isinstance(params, Mapping):
+                state.set_model_params(params)
+            if prompt:
+                state.set_prompt(prompt)
+
+    # ------------------------------------------------------------------ #
+    # Retriever and LLM ends                                             #
+    # ------------------------------------------------------------------ #
+
+    @_guarded
+    def on_retriever_end(self, documents: Any, **kwargs: Any) -> None:
+        with self._lock:
+            state = self._state_for(kwargs.get("run_id"))
+            if state is None:
+                return
+            for i, doc in enumerate(documents or []):
+                state.chunks.append(coerce_chunk(doc, index=len(state.chunks) + i))
+
+    @_guarded
+    def on_llm_end(self, response: Any, **kwargs: Any) -> None:
+        answer, model_name = _answer_and_model(response)
+        with self._lock:
+            state = self._state_for(kwargs.get("run_id"))
+            if state is None:
+                return
+            if answer:
+                state.llm_answer = answer
+            if model_name:
+                state.model_name = model_name
+            usage = _usage_from(response)
+            if usage:
+                state.lineage["usage"] = usage
+
+    # ------------------------------------------------------------------ #
+    # Helpers kept for compatibility with 0.1.x tests                    #
+    # ------------------------------------------------------------------ #
+
+    def _sign_chain(self, state: Trace) -> str:
+        from .chain import content_signature
+
+        return content_signature(state.query, state.chunks, state.llm_answer)
 
     def _coerce_query(self, inputs: Any) -> str:
-        """LCEL hands us dicts, strings, lists of messages, or BaseMessages.
-        Normalize to a single query string."""
-        if isinstance(inputs, str):
-            return inputs
-        if isinstance(inputs, dict):
-            for key in ("query", "question", "input", "human_input", "prompt"):
-                if key in inputs and inputs[key] is not None:
-                    return str(inputs[key])
-            # Fallback: stringify the whole dict so we at least have something.
-            return json.dumps(inputs, default=str)[:2000]
-        # BaseMessage, list of messages, or anything else — stringify.
-        content = getattr(inputs, "content", None)
-        if isinstance(content, str):
-            return content
-        return str(inputs)[:2000]
+        return self.auditor.coerce_query(inputs)
 
     def _coerce_answer(self, outputs: Any) -> str:
-        """Same idea as _coerce_query but for the chain's final output."""
-        if isinstance(outputs, str):
-            return outputs
-        if isinstance(outputs, dict):
-            for key in ("answer", "result", "output", "response", "text"):
-                if key in outputs and outputs[key] is not None:
-                    return str(outputs[key])
-            return json.dumps(outputs, default=str)[:4000]
-        content = getattr(outputs, "content", None)
-        if isinstance(content, str):
-            return content
-        return str(outputs)[:4000]
+        return self.auditor.coerce_answer(outputs)
 
-    def on_chain_error(self, error: BaseException, **kwargs: Any) -> None:
-        run_id = kwargs.get("run_id")
+    def flush(self, timeout: float | None = None) -> bool:
+        return self.auditor.flush(timeout)
 
-        with self._lock:
-            if run_id not in self._runs:
-                # Inner runnable error. LangChain will propagate the error
-                # up to the root, which will also fire on_chain_error — we
-                # finalize there.
-                return
-            state = self._runs.pop(run_id)
-            for child_id in state.descendants:
-                self._run_parents.pop(child_id, None)
 
-        logger.error(f"RAGCompliance: Chain error — {error}")
-        # Fire a chain_errored alert with whatever state we captured before
-        # the failure. We don't persist a partial record; the alerter gets
-        # a lightweight synthetic record with enough metadata to link back.
-        if self.alerter is not None:
-            try:
-                partial = AuditRecord(
-                    session_id=self.session_id,
-                    workspace_id=self.config.workspace_id,
-                    query=state.query,
-                    retrieved_chunks=state.chunks,
-                    llm_answer=state.llm_answer,
-                    model_name=state.model_name,
-                    chain_signature="",
-                    latency_ms=int((time.time() - state.start_time) * 1000),
-                    extra=self.extra,
+# ---------------------------------------------------------------------- #
+# Module helpers                                                         #
+# ---------------------------------------------------------------------- #
+
+
+def _actor_and_extra_from_metadata(
+    metadata: Mapping[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    actor: dict[str, Any] = {}
+    raw_actor = metadata.get("ragcompliance_actor")
+    if isinstance(raw_actor, Mapping):
+        actor.update({str(k): v for k, v in raw_actor.items()})
+    for key, target in (("actor_id", "id"), ("user_id", "id"), ("actor_type", "type")):
+        if key in metadata and metadata[key] is not None and target not in actor:
+            actor[target] = metadata[key]
+    extra_raw = metadata.get("ragcompliance_extra")
+    extra = dict(extra_raw) if isinstance(extra_raw, Mapping) else {}
+    return actor, extra
+
+
+def _name_of(serialized: Any, kwargs: Mapping[str, Any]) -> str:
+    if isinstance(serialized, Mapping):
+        name = serialized.get("name")
+        if name:
+            return str(name)
+        ident = serialized.get("id")
+        if isinstance(ident, list) and ident:
+            return str(ident[-1])
+    name = kwargs.get("name")
+    return str(name) if name else ""
+
+
+def _render_messages(messages: Any) -> str:
+    lines: list[str] = []
+    batches = messages if isinstance(messages, list) else [messages]
+    for batch in batches:
+        items = batch if isinstance(batch, list) else [batch]
+        for m in items:
+            role = getattr(m, "type", None) or getattr(m, "role", None) or "message"
+            content = getattr(m, "content", m)
+            if isinstance(content, list):
+                content = " ".join(
+                    str(p.get("text", "")) if isinstance(p, Mapping) else str(p) for p in content
                 )
-                self.alerter.maybe_alert(partial, error=error)
-            except Exception as e:
-                logger.debug(f"RAGCompliance: error-path alert failed ({e})")
+            lines.append(f"{role}: {content}")
+    return "\n".join(lines)
+
+
+def _answer_and_model(response: Any) -> tuple[str, str]:
+    answer = ""
+    model_name = ""
+    try:
+        gen = response.generations[0][0]
+    except (IndexError, AttributeError, TypeError):
+        gen = None
+    if gen is not None:
+        text = getattr(gen, "text", None)
+        if isinstance(text, str):
+            answer = text
+        message = getattr(gen, "message", None)
+        meta = getattr(message, "response_metadata", None) or {}
+        if isinstance(meta, Mapping):
+            model_name = str(meta.get("model_name") or meta.get("model") or "")
+        if not answer and message is not None:
+            content = getattr(message, "content", "")
+            if isinstance(content, str):
+                answer = content
+    llm_output = getattr(response, "llm_output", None) or {}
+    if isinstance(llm_output, Mapping):
+        model_name = str(llm_output.get("model_name") or llm_output.get("model") or model_name)
+    return answer, model_name
+
+
+def _usage_from(response: Any) -> dict[str, Any]:
+    llm_output = getattr(response, "llm_output", None) or {}
+    usage: Any = None
+    if isinstance(llm_output, Mapping):
+        usage = llm_output.get("token_usage") or llm_output.get("usage")
+    if not usage:
+        try:
+            message = response.generations[0][0].message
+            usage = getattr(message, "usage_metadata", None)
+        except (IndexError, AttributeError, TypeError):
+            usage = None
+    if isinstance(usage, Mapping):
+        return {
+            k: v
+            for k, v in usage.items()
+            if isinstance(v, (int, float)) and k in (
+                "prompt_tokens", "completion_tokens", "total_tokens",
+                "input_tokens", "output_tokens",
+            )
+        }
+    return {}
